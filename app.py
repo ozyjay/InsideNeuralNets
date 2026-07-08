@@ -25,6 +25,8 @@ from src.visualise import (
 )
 
 APP_TITLE = "InsideNeuralNets"
+PREDICTION_LABEL_COUNT = 5
+CLASSIFIER_LABEL_COUNT = 20
 THEME_OPTIONS = (
     ("aurora", "Aurora booth"),
     ("laboratory", "Laboratory microscope"),
@@ -113,6 +115,7 @@ def _run_live_analysis_response(
         analysis = run_model_analysis(
             image,
             model_key=model_key,
+            top_k=CLASSIFIER_LABEL_COUNT,
             include_visualisations=include_visualisations,
             visualisation_keys=visualisation_keys,
             activation_colour_map=activation_colour_map,
@@ -195,7 +198,7 @@ def get_models() -> dict[str, object]:
 
 @app.post("/api/run")
 def run_demo(request: RunRequest) -> JSONResponse:
-    """Run top-5 inference for a curated image.
+    """Run live inference for a curated image.
 
     Fallback replay is kept as a visible mode, but full fallback asset playback
     will be implemented in the next phase. Live inference failures are returned
@@ -476,9 +479,11 @@ def _render_index_html() -> str:
     .classifier-block {{ position: relative; display: grid; place-items: center; min-height: 92px; padding: 12px 8px; border-radius: 14px; text-align: center; background: linear-gradient(180deg, rgba(var(--accent-rgb), 0.16), rgba(var(--accent-2-rgb), 0.08)); border: 1px solid rgba(226,232,240,0.18); font-weight: 900; }}
     .classifier-block:not(:last-child)::after {{ content: "→"; position: absolute; right: -16px; top: 50%; transform: translateY(-50%); color: var(--heading-4); font-size: 1.35rem; z-index: 2; }}
     .classifier-block small {{ display: block; margin-top: 6px; color: var(--muted); font-weight: 700; line-height: 1.25; }}
-    .classifier-scores {{ display: grid; gap: 8px; }}
+    .score-note {{ margin: 0 0 10px; color: var(--muted); font-size: 0.9rem; }}
+    .classifier-scores {{ display: grid; gap: 8px; max-height: 440px; overflow: auto; padding-right: 4px; }}
     .classifier-score {{ display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: center; font-size: 0.9rem; }}
     .classifier-score .bar {{ grid-column: 1 / -1; }}
+    .score-rank {{ color: var(--heading-4); font-weight: 900; margin-right: 4px; }}
     @media (max-width: 980px) {{ .layer-detail {{ grid-template-columns: 1fr; }} }}
     @media (max-width: 620px) {{ .classifier-flow {{ grid-template-columns: 1fr; gap: 22px; }} .classifier-block:not(:last-child)::after {{ content: "↓"; right: auto; left: 50%; top: auto; bottom: -18px; transform: translateX(-50%); }} }}
     @media (max-width: 860px) {{ .grid {{ grid-template-columns: 1fr; }} }}
@@ -555,6 +560,8 @@ def _render_index_html() -> str:
 
 <script>
 const MODEL_OPTIONS = {model_options_json};
+const PREDICTION_LABEL_COUNT = {PREDICTION_LABEL_COUNT};
+const CLASSIFIER_LABEL_COUNT = {CLASSIFIER_LABEL_COUNT};
 const MODEL_STORAGE_KEY = 'insideAlexNetModelKey';
 const modelSelect = document.getElementById('modelSelect');
 const modelDescription = document.getElementById('modelDescription');
@@ -969,16 +976,23 @@ function classifierScoresHtml() {{
   if (!lastPredictions.length) {{
     return '<p class="message">Run the selected model to show how classifier scores flow into likely labels.</p>';
   }}
-  const items = lastPredictions.map(item => {{
+  const classifierPredictions = lastPredictions.slice(0, CLASSIFIER_LABEL_COUNT);
+  const topProbability = Math.max(...classifierPredictions.map(item => item.probability), 0);
+  const items = classifierPredictions.map((item, index) => {{
     const pct = Math.round(item.probability * 1000) / 10;
+    const relativeWidth = topProbability > 0 ? Math.max(2, Math.round((item.probability / topProbability) * 100)) : 0;
     return `
       <div class="classifier-score">
-        <strong>${{escapeHtml(item.label)}}</strong>
+        <strong><span class="score-rank">#${{index + 1}}</span> ${{escapeHtml(item.label)}}</strong>
         <span>${{pct}}%</span>
-        <div class="bar"><span style="width: ${{pct}}%"></span></div>
+        <div class="bar" title="Relative to the top classifier score"><span style="width: ${{relativeWidth}}%"></span></div>
       </div>`;
   }}).join('');
-  return `<div class="classifier-scores" aria-label="Top classifier score bars">${{items}}</div>`;
+  return `
+    <div>
+      <p class="score-note">Top ${{classifierPredictions.length}} ImageNet labels, with bar widths scaled relative to the highest current score.</p>
+      <div class="classifier-scores" aria-label="Top classifier score bars">${{items}}</div>
+    </div>`;
 }}
 
 function renderClassifierDetail(options = {{}}) {{
@@ -999,9 +1013,10 @@ function renderClassifierDetail(options = {{}}) {{
     <div class="detail-copy">
       <h3>Classifier</h3>
       <p>${{escapeHtml(captionText)}}</p>
-      <p>The model turns compact feature values into class scores. The bars show the current top scores as a visual guide, not certainty.</p>
+      <p>The model turns compact feature values into class scores. This layer shows more candidate labels than the final prediction summary so visitors can see alternatives the model considered plausible.</p>
       <span class="detail-pill">Input: ${{escapeHtml(shape)}}</span>
       <span class="detail-pill">Fully connected layers</span>
+      <span class="detail-pill">Top ${{CLASSIFIER_LABEL_COUNT}} label scores</span>
       <span class="detail-pill">Scores, not certainty</span>
     </div>`;
   scrollLayerDetailIfNeeded(options);
@@ -1011,7 +1026,7 @@ function predictionListHtml() {{
   if (!lastPredictions.length) {{
     return '<p class="message">Run the selected model to show the top likely ImageNet labels for this input.</p>';
   }}
-  const items = lastPredictions.map(item => {{
+  const items = lastPredictions.slice(0, PREDICTION_LABEL_COUNT).map(item => {{
     const pct = Math.round(item.probability * 1000) / 10;
     return `<li><strong>${{escapeHtml(item.label)}}</strong><span>${{pct}}%</span><div class="bar"><span style="width: ${{pct}}%"></span></div></li>`;
   }}).join('');
@@ -1029,7 +1044,7 @@ function renderPredictionDetail(options = {{}}) {{
       <h3>Prediction</h3>
       <p>${{escapeHtml(captionText)}}</p>
       <p>These labels come from the model’s training categories and can be wrong, especially for unusual, ambiguous, or out-of-distribution images.</p>
-      <span class="detail-pill">Top-5 labels</span>
+      <span class="detail-pill">Top-${{PREDICTION_LABEL_COUNT}} labels</span>
       <span class="detail-pill">Likely, not guaranteed</span>
     </div>`;
   scrollLayerDetailIfNeeded(options);
