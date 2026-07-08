@@ -18,11 +18,3 @@ else
 fi
 
 "${PYTHON_BIN}" scripts/stop_dev.py --host "${HOST}" --port "${PORT}" --project-root "$(pwd)"
-
-if [[ -x ".venv/bin/uvicorn" ]]; then
-  UVICORN_BIN=".venv/bin/uvicorn"
-else
-  UVICORN_BIN="uvicorn"
-fi
-
-exec "${UVICORN_BIN}" app:app --host "${HOST}" --port "${PORT}"

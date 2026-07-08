@@ -35,16 +35,4 @@ if (Test-Path -Path $VenvPython -PathType Leaf) {
 }
 
 & $PythonBin scripts/stop_dev.py --host $HostName --port $Port --project-root $ProjectRoot
-if ($LASTEXITCODE -ne 0) {
-    throw "Previous-process cleanup failed."
-}
-
-$VenvUvicorn = Join-Path $ProjectRoot ".venv/bin/uvicorn"
-if (Test-Path -Path $VenvUvicorn -PathType Leaf) {
-    $UvicornBin = $VenvUvicorn
-} else {
-    $UvicornBin = "uvicorn"
-}
-
-& $UvicornBin app:app --host $HostName --port $Port
 exit $LASTEXITCODE

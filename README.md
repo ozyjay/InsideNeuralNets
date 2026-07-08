@@ -137,6 +137,20 @@ PowerShell:
 pwsh -NoProfile -File scripts/run_dev.ps1
 ```
 
+The run scripts first stop any previous `uvicorn app:app` demo process for this project on the configured port, then start a fresh server.
+
+To stop the demo without starting it again:
+
+```bash
+bash scripts/stop_dev.sh
+```
+
+PowerShell:
+
+```powershell
+pwsh -NoProfile -File scripts/stop_dev.ps1
+```
+
 The FastAPI app reads these defaults from `.env` when using the run scripts. `.env.example` documents them:
 
 ```env
@@ -179,9 +193,15 @@ Or rerun the setup script:
 pwsh -NoProfile -File scripts/setup.ps1
 ```
 
-### The app uses the wrong port
+### The app uses the wrong port or says the port is already in use
 
-Run the app with the explicit Open Day command:
+The run scripts should stop previous demo processes automatically. You can also stop them manually:
+
+```powershell
+pwsh -NoProfile -File scripts/stop_dev.ps1
+```
+
+Then run the app with the explicit Open Day command:
 
 ```bash
 .venv/bin/uvicorn app:app --host 127.0.0.1 --port 3450
