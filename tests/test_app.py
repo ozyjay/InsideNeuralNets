@@ -44,6 +44,7 @@ def test_index_html_includes_local_camera_privacy_wording() -> None:
     assert "Live camera" in html
     assert "are not saved" in html
     assert "/api/run-camera" in html
+    assert "Start continuous AlexNet" in html
 
 
 def test_decode_camera_image_accepts_data_url() -> None:
@@ -63,3 +64,9 @@ def test_camera_fallback_returns_graceful_message() -> None:
 
     assert response.status_code == 200
     assert b"Fallback replay uses curated" in response.body
+
+
+def test_camera_request_can_disable_visualisations() -> None:
+    request = CameraRunRequest(image_data="not-used", include_visualisations=False)
+
+    assert request.include_visualisations is False

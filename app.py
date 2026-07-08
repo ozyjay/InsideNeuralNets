@@ -38,6 +38,7 @@ class CameraRunRequest(BaseModel):
 
     image_data: str = Field(..., min_length=1)
     fallback: bool = False
+    include_visualisations: bool = True
 
 
 def _image_lookup() -> dict[str, Path]:
@@ -76,10 +77,15 @@ def _decode_camera_image(image_data: str) -> Image.Image:
         raise ValueError("Camera frame could not be opened as an image.") from exc
 
 
-def _run_live_analysis_response(image: Image.Image, *, source: str) -> JSONResponse:
+def _run_live_analysis_response(
+    image: Image.Image,
+    *,
+    source: str,
+    include_visualisations: bool = True,
+) -> JSONResponse:
     """Run AlexNet analysis and return a consistent JSON response."""
     try:
-        analysis = run_alexnet_analysis(image)
+        analysis = run_alexnet_analysis(image, include_visualisations=include_visualisations)
     except ModelUnavailableError as exc:
         return JSONResponse(
             {
@@ -90,6 +96,7 @@ def _run_live_analysis_response(image: Image.Image, *, source: str) -> JSONRespo
                 "help": "Run the setup script and pre-download AlexNet weights, or use fallback replay once assets have been precomputed.",
                 "predictions": [],
                 "visualisations": [],
+                "visualisations_included": include_visualisations,
             }
         )
 
@@ -101,6 +108,7 @@ def _run_live_analysis_response(image: Image.Image, *, source: str) -> JSONRespo
             "message": "AlexNet returned likely ImageNet labels. These can be wrong.",
             "predictions": [prediction.to_dict() for prediction in analysis.predictions],
             "visualisations": [visualisation.to_dict() for visualisation in analysis.visualisations],
+            "visualisations_included": include_visualisations,
         }
     )
 
@@ -214,7 +222,11 @@ def run_camera_demo(request: CameraRunRequest) -> JSONResponse:
             status_code=400,
         )
 
-    return _run_live_analysis_response(image, source="camera")
+    return _run_live_analysis_response(
+        image,
+        source="camera",
+        include_visualisations=request.include_visualisations,
+    )
 
 
 def _render_index_html() -> str:
@@ -269,6 +281,7 @@ def _render_index_html() -> str:
     .preview img, .preview video {{ max-width: 100%; max-height: 520px; display: block; }}
     .preview video {{ width: 100%; transform: scaleX(-1); }}
     .camera-actions {{ display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }}
+    .camera-actions .wide {{ grid-column: 1 / -1; }}
     .camera-note {{ font-size: 0.88rem; margin: 8px 0 0; color: var(--muted); }}
     .message {{ padding: 12px 14px; border-radius: 14px; background: linear-gradient(180deg, rgba(30,41,59,0.98), rgba(17,24,39,0.98)); color: var(--muted); border: 1px solid rgba(148,163,184,0.16); }}
     .message.error {{ background: linear-gradient(180deg, rgba(127,29,29,0.46), rgba(69,10,10,0.34)); color: var(--danger); border-color: rgba(248,113,113,0.3); }}
@@ -323,6 +336,7 @@ def _render_index_html() -> str:
         <div class="camera-actions">
           <button id="startCameraButton" class="secondary" type="button">Start camera</button>
           <button id="cameraRunButton" type="button" disabled>Capture + run</button>
+          <button id="liveRunButton" class="wide" type="button" disabled>Start continuous AlexNet</button>
         </div>
         <p class="camera-note">Opt-in local camera mode. Frames are sent only to this local app for analysis and are not saved.</p>
       </div>
@@ -385,6 +399,7 @@ const preview = document.getElementById('preview');
 const runButton = document.getElementById('runButton');
 const startCameraButton = document.getElementById('startCameraButton');
 const cameraRunButton = document.getElementById('cameraRunButton');
+const liveRunButton = document.getElementById('liveRunButton');
 const resetButton = document.getElementById('resetButton');
 const fallbackToggle = document.getElementById('fallbackToggle');
 const statusBox = document.getElementById('status');
@@ -397,6 +412,8 @@ let captions = {{}};
 let visualisationsByLabel = new Map();
 let cameraStream = null;
 let cameraVideo = null;
+let liveRunActive = false;
+let liveFrameIndex = 0;
 
 function setStatus(text, kind = '') {{
   statusBox.className = `message ${{kind}}`;
@@ -467,36 +484,47 @@ function renderAnalysisResult(data) {{
     li.innerHTML = `<strong>${{item.label}}</strong><span>${{pct}}%</span><div class="bar"><span style="width: ${{pct}}%"></span></div>`;
     predictions.appendChild(li);
   }});
-  featureMaps.innerHTML = '';
-  if (data.visualisations && data.visualisations.length) {{
-    data.visualisations.forEach(item => {{
-      visualisationsByLabel.set(item.label, item);
-      const card = document.createElement('article');
-      card.className = 'feature-card';
-      card.dataset.layer = item.label;
-      const captionText = captions[item.caption_key] || item.note || '';
-      card.innerHTML = `<h3>${{item.label}}</h3><img src="${{item.image_data}}" alt="${{item.label}} activation grid" /><small>${{captionText}}</small><small>Tensor shape: ${{item.tensor_shape.join(' × ')}}</small><small>Click to enlarge this layer.</small>`;
-      card.addEventListener('click', () => showLayerDetail(item));
-      featureMaps.appendChild(card);
-    }});
-  }} else if (data.ok) {{
-    layerDetail.className = 'layer-detail placeholder';
-    layerDetail.innerHTML = '<p class="message">Click a feature-map card after running AlexNet to enlarge that layer and read a more detailed explanation.</p>';
-    featureMaps.innerHTML = '<p class="message">The model ran, but no selected activation grids were captured.</p>';
-  }} else {{
-    layerDetail.className = 'layer-detail placeholder';
-    layerDetail.innerHTML = '<p class="message">Detailed layer views will appear when live inference or fallback replay is available.</p>';
-    featureMaps.innerHTML = '<p class="message">Activation grids will appear here when live inference or fallback replay is available.</p>';
+  const visualisationsIncluded = data.visualisations_included !== false;
+  if (visualisationsIncluded) {{
+    featureMaps.innerHTML = '';
+    if (data.visualisations && data.visualisations.length) {{
+      data.visualisations.forEach(item => {{
+        visualisationsByLabel.set(item.label, item);
+        const card = document.createElement('article');
+        card.className = 'feature-card';
+        card.dataset.layer = item.label;
+        const captionText = captions[item.caption_key] || item.note || '';
+        card.innerHTML = `<h3>${{item.label}}</h3><img src="${{item.image_data}}" alt="${{item.label}} activation grid" /><small>${{captionText}}</small><small>Tensor shape: ${{item.tensor_shape.join(' × ')}}</small><small>Click to enlarge this layer.</small>`;
+        card.addEventListener('click', () => showLayerDetail(item));
+        featureMaps.appendChild(card);
+      }});
+    }} else if (data.ok) {{
+      layerDetail.className = 'layer-detail placeholder';
+      layerDetail.innerHTML = '<p class="message">Click a feature-map card after running AlexNet to enlarge that layer and read a more detailed explanation.</p>';
+      featureMaps.innerHTML = '<p class="message">The model ran, but no selected activation grids were captured.</p>';
+    }} else {{
+      layerDetail.className = 'layer-detail placeholder';
+      layerDetail.innerHTML = '<p class="message">Detailed layer views will appear when live inference or fallback replay is available.</p>';
+      featureMaps.innerHTML = '<p class="message">Activation grids will appear here when live inference or fallback replay is available.</p>';
+    }}
   }}
 }}
 
+function stopLiveRun() {{
+  liveRunActive = false;
+  liveRunButton.textContent = 'Start continuous AlexNet';
+  liveRunButton.classList.remove('secondary');
+}}
+
 function stopCamera() {{
+  stopLiveRun();
   if (cameraStream) {{
     cameraStream.getTracks().forEach(track => track.stop());
   }}
   cameraStream = null;
   cameraVideo = null;
   cameraRunButton.disabled = true;
+  liveRunButton.disabled = true;
   startCameraButton.textContent = 'Start camera';
 }}
 
@@ -523,8 +551,9 @@ async function startCamera() {{
     preview.innerHTML = '';
     preview.appendChild(cameraVideo);
     cameraRunButton.disabled = false;
+    liveRunButton.disabled = false;
     startCameraButton.textContent = 'Stop camera';
-    setStatus('Camera preview is local. Capture a still frame to run AlexNet.', 'ok');
+    setStatus('Camera preview is local. Capture one frame or start continuous AlexNet.', 'ok');
   }} catch (error) {{
     setStatus(`Camera access was not available: ${{error}}`, 'error');
     stopCamera();
@@ -547,25 +576,69 @@ function captureCameraFrame() {{
   return canvas.toDataURL('image/jpeg', 0.9);
 }}
 
+async function analyseCameraFrame({{includeVisualisations = true, live = false}} = {{}}) {{
+  const imageData = captureCameraFrame();
+  const response = await fetch('/api/run-camera', {{
+    method: 'POST',
+    headers: {{'Content-Type': 'application/json'}},
+    body: JSON.stringify({{image_data: imageData, fallback: fallbackToggle.checked, include_visualisations: includeVisualisations}})
+  }});
+  const data = await response.json();
+  renderAnalysisResult(data);
+  if (live && data.ok) {{
+    setStatus(`Continuous AlexNet is running locally. Analysed frame ${{liveFrameIndex}}.`, 'ok');
+  }}
+  return data;
+}}
+
 async function runCameraFrame() {{
   cameraRunButton.disabled = true;
   predictions.innerHTML = '';
   featureMaps.innerHTML = '<p class="message">Capturing selected AlexNet layer responses from the camera frame…</p>';
   setStatus('Capturing one local camera frame…');
   try {{
-    const imageData = captureCameraFrame();
-    const response = await fetch('/api/run-camera', {{
-      method: 'POST',
-      headers: {{'Content-Type': 'application/json'}},
-      body: JSON.stringify({{image_data: imageData, fallback: fallbackToggle.checked}})
-    }});
-    const data = await response.json();
-    renderAnalysisResult(data);
+    await analyseCameraFrame({{includeVisualisations: true, live: false}});
   }} catch (error) {{
     setStatus(`The local app could not analyse the camera frame: ${{error}}`, 'error');
   }} finally {{
     cameraRunButton.disabled = !cameraStream;
   }}
+}}
+
+async function liveRunLoop() {{
+  if (!liveRunActive || !cameraStream) return;
+  liveFrameIndex += 1;
+  const includeVisualisations = liveFrameIndex === 1 || liveFrameIndex % 3 === 0;
+  try {{
+    await analyseCameraFrame({{includeVisualisations, live: true}});
+  }} catch (error) {{
+    setStatus(`Continuous AlexNet stopped: ${{error}}`, 'error');
+    stopLiveRun();
+    return;
+  }}
+  if (liveRunActive) {{
+    window.setTimeout(liveRunLoop, 150);
+  }}
+}}
+
+function toggleLiveRun() {{
+  if (liveRunActive) {{
+    stopLiveRun();
+    setStatus('Continuous AlexNet stopped. Camera preview is still local.', 'ok');
+    return;
+  }}
+  if (!cameraStream) {{
+    setStatus('Start the camera before continuous AlexNet.', 'error');
+    return;
+  }}
+  liveRunActive = true;
+  liveFrameIndex = 0;
+  liveRunButton.textContent = 'Stop continuous AlexNet';
+  liveRunButton.classList.add('secondary');
+  predictions.innerHTML = '';
+  featureMaps.innerHTML = '<p class="message">Continuous AlexNet is analysing camera frames locally…</p>';
+  setStatus('Continuous AlexNet is starting. Frames are analysed locally and are not saved.', 'ok');
+  liveRunLoop();
 }}
 
 async function loadCaptions() {{
@@ -638,6 +711,7 @@ runButton.addEventListener('click', async () => {{
 
 startCameraButton.addEventListener('click', startCamera);
 cameraRunButton.addEventListener('click', runCameraFrame);
+liveRunButton.addEventListener('click', toggleLiveRun);
 resetButton.addEventListener('click', resetDemo);
 document.querySelectorAll('.network .layer').forEach(layer => {{
   layer.style.cursor = 'pointer';

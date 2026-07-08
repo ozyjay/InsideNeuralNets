@@ -98,7 +98,9 @@ Camera mode was added as an explicit opt-in booth feature.
 - The browser asks for camera permission.
 - The preview stays in the local browser.
 - Press **Capture + run** to send one still frame to the local FastAPI app.
-- The frame is analysed in memory and is not written to disk.
+- Press **Start continuous AlexNet** to repeatedly analyse the latest camera frame while the button is active.
+- Continuous mode runs one local AlexNet request at a time and updates as fast as the model completes frames.
+- Frames are analysed in memory and are not written to disk.
 - Do not use camera mode for visitors who do not consent.
 
 ## Precompute fallback assets
@@ -147,7 +149,7 @@ Do not use random fallback ports for Open Day mode.
 
 ## Reset and fallback behaviour
 
-The reset button clears the current image selection, stops any active camera preview, clears results, and returns the app to the default instruction screen.
+The reset button clears the current image selection, stops any active camera preview and continuous run loop, clears results, and returns the app to the default instruction screen.
 
 Fallback/replay mode is shown in the UI now, but full fallback asset playback is part of a later build phase. Live AlexNet prediction failures are displayed as public setup messages rather than app crashes.
 
