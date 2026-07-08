@@ -45,6 +45,7 @@ def test_index_html_includes_local_camera_privacy_wording() -> None:
     assert "are not saved" in html
     assert "/api/run-camera" in html
     assert "Start continuous AlexNet" in html
+    assert "Updates with each live frame" in html
 
 
 def test_decode_camera_image_accepts_data_url() -> None:

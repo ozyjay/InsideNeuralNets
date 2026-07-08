@@ -410,6 +410,7 @@ const timeline = document.getElementById('timeline');
 const caption = document.getElementById('caption');
 let captions = {{}};
 let visualisationsByLabel = new Map();
+let selectedDetailLabel = null;
 let cameraStream = null;
 let cameraVideo = null;
 let liveRunActive = false;
@@ -423,6 +424,7 @@ function setStatus(text, kind = '') {{
 function clearResults() {{
   predictions.innerHTML = '';
   visualisationsByLabel = new Map();
+  selectedDetailLabel = null;
   layerDetail.className = 'layer-detail placeholder';
   layerDetail.innerHTML = '<p class="message">Click a feature-map card after running AlexNet to enlarge that layer and read a more detailed explanation.</p>';
   featureMaps.innerHTML = '<p class="message">Run AlexNet to show selected activation grids for early, middle, and deep convolution layers.</p>';
@@ -445,7 +447,8 @@ function selectStage(stage) {{
   caption.textContent = captions[stage] || 'This shows how a trained vision model responds at this stage.';
 }}
 
-function showLayerDetail(item) {{
+function showLayerDetail(item, options = {{}}) {{
+  selectedDetailLabel = item.label;
   selectStage(item.label);
   document.querySelectorAll('.feature-card').forEach(card => card.classList.toggle('active', card.dataset.layer === item.label));
   const captionText = captions[item.caption_key] || item.note || 'This shows selected channels from this layer response.';
@@ -459,8 +462,11 @@ function showLayerDetail(item) {{
       <span class="detail-pill">${{item.tensor_shape.join(' × ')}}</span>
       <span class="detail-pill">Selected channels</span>
       <span class="detail-pill">Normalised for display</span>
+      <span class="detail-pill">Updates with each live frame</span>
     </div>`;
-  layerDetail.scrollIntoView({{behavior: 'smooth', block: 'nearest'}});
+  if (options.scroll !== false) {{
+    layerDetail.scrollIntoView({{behavior: 'smooth', block: 'nearest'}});
+  }}
 }}
 
 function selectLayerFromDiagram(stage) {{
@@ -498,6 +504,11 @@ function renderAnalysisResult(data) {{
         card.addEventListener('click', () => showLayerDetail(item));
         featureMaps.appendChild(card);
       }});
+      const detailLabel = selectedDetailLabel || data.visualisations[0].label;
+      const detailItem = visualisationsByLabel.get(detailLabel);
+      if (detailItem) {{
+        showLayerDetail(detailItem, {{scroll: false}});
+      }}
     }} else if (data.ok) {{
       layerDetail.className = 'layer-detail placeholder';
       layerDetail.innerHTML = '<p class="message">Click a feature-map card after running AlexNet to enlarge that layer and read a more detailed explanation.</p>';
@@ -608,9 +619,8 @@ async function runCameraFrame() {{
 async function liveRunLoop() {{
   if (!liveRunActive || !cameraStream) return;
   liveFrameIndex += 1;
-  const includeVisualisations = liveFrameIndex === 1 || liveFrameIndex % 3 === 0;
   try {{
-    await analyseCameraFrame({{includeVisualisations, live: true}});
+    await analyseCameraFrame({{includeVisualisations: true, live: true}});
   }} catch (error) {{
     setStatus(`Continuous AlexNet stopped: ${{error}}`, 'error');
     stopLiveRun();
@@ -636,8 +646,8 @@ function toggleLiveRun() {{
   liveRunButton.textContent = 'Stop continuous AlexNet';
   liveRunButton.classList.add('secondary');
   predictions.innerHTML = '';
-  featureMaps.innerHTML = '<p class="message">Continuous AlexNet is analysing camera frames locally…</p>';
-  setStatus('Continuous AlexNet is starting. Frames are analysed locally and are not saved.', 'ok');
+  featureMaps.innerHTML = '<p class="message">Continuous AlexNet is analysing camera frames locally and refreshing feature maps each frame…</p>';
+  setStatus('Continuous AlexNet is starting. Predictions and detailed feature maps update on each analysed frame.', 'ok');
   liveRunLoop();
 }}
 

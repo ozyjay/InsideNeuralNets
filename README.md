@@ -99,7 +99,7 @@ Camera mode was added as an explicit opt-in booth feature.
 - The preview stays in the local browser.
 - Press **Capture + run** to send one still frame to the local FastAPI app.
 - Press **Start continuous AlexNet** to repeatedly analyse the latest camera frame while the button is active.
-- Continuous mode runs one local AlexNet request at a time and updates as fast as the model completes frames.
+- Continuous mode runs one local AlexNet request at a time and updates predictions plus the selected detailed feature-map view as fast as the model completes frames.
 - Frames are analysed in memory and are not written to disk.
 - Do not use camera mode for visitors who do not consent.
 
