@@ -1,1 +1,1 @@
-"""Source package for the AlexNet vision demo."""
+"""Source package for the vision model demo."""

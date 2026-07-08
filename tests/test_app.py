@@ -11,31 +11,73 @@ def test_index_html_mentions_fastapi_demo_title() -> None:
     assert "trained vision model" in html
 
 
-def test_index_html_uses_selectable_diagram_for_all_layers() -> None:
+def test_index_html_uses_selectable_diagram_for_model_layers() -> None:
     html = demo_app.index()
 
     for layer in (
-        "Input",
         "Conv 1",
         "Pool 1",
         "Conv 2",
-        "Pool 2",
-        "Conv 3",
-        "Conv 4",
-        "Conv 5",
-        "Pool 5",
+        "Residual 1",
+        "Residual 4",
+        "Early block",
+        "Final conv",
         "Avg pool",
-        "Classifier",
-        "Prediction",
     ):
-        assert f'data-layer="{layer}"' in html
+        assert layer in html
 
-    assert "AlexNet layer explorer" in html
+    assert "Model layer explorer" in html
     assert "Input image preview" not in html
     assert "Layer timeline" not in html
     assert "Top-5 predictions" not in html
     assert 'id="predictions"' not in html
     assert "Predictions are shown by selecting the Prediction stage" in html
+
+
+def test_index_html_includes_classifier_visual_sketch() -> None:
+    html = demo_app.index()
+
+    assert "Classifier layer visual sketch" in html
+    assert "classifier-flow" in html
+    assert "Top classifier score bars" in html
+    assert "Scores, not certainty" in html
+
+
+def test_index_html_includes_colour_theme_selector() -> None:
+    html = demo_app.index()
+
+    assert 'id="themeSelect"' in html
+    assert "Colour theme selector" in html
+    assert "Laboratory microscope" in html
+    assert "Warm classroom" in html
+    assert "Neural neon" in html
+    assert "Calm deep learning" in html
+    assert "Monochrome signal" in html
+    assert 'body[data-theme="calm"]' in html
+    assert "insideAlexNetColourTheme" in html
+
+
+def test_index_html_includes_model_selector() -> None:
+    html = demo_app.index()
+    models = demo_app.get_models()
+
+    assert 'id="modelSelect"' in html
+    assert "Vision model selector" in html
+    assert "ResNet-50" in html
+    assert "MobileNetV3 Large" in html
+    assert models["default"] == "alexnet"
+    assert {model["key"] for model in models["models"]} == {"alexnet", "resnet50", "mobilenet_v3_large"}
+
+
+def test_index_html_includes_activation_colour_selector() -> None:
+    html = demo_app.index()
+
+    assert 'id="activationColourSelect"' in html
+    assert "Activation image colour selector" in html
+    assert "Layer image colours" in html
+    assert "activation_colour_map" in html
+    assert "insideAlexNetActivationColourMap" in html
+    assert "It does not change the model result" in html
 
 
 def test_list_images_handles_empty_folder(monkeypatch, tmp_path: Path) -> None:
@@ -72,7 +114,7 @@ def test_index_html_includes_local_camera_privacy_wording() -> None:
     assert "Live camera" in html
     assert "are not saved" in html
     assert "/api/run-camera" in html
-    assert "Start continuous AlexNet" in html
+    assert "Start continuous model" in html
     assert "Updates with each live frame" in html
     assert "camera-capture-source" in html
     assert "Live local camera input" in html
@@ -109,15 +151,31 @@ def test_camera_request_accepts_selected_visualisation_keys() -> None:
     assert request.visualisation_keys == ["conv1"]
 
 
+def test_run_request_accepts_model_and_activation_colour_map() -> None:
+    request = RunRequest(image_name="sample.jpg", model_key="resnet50", activation_colour_map="neon")
+
+    assert request.model_key == "resnet50"
+    assert request.activation_colour_map == "neon"
+
+
 def test_live_response_passes_selected_visualisation_keys(monkeypatch) -> None:
     captured: dict[str, object] = {}
 
-    def fake_analysis(image, *, include_visualisations=True, visualisation_keys=None):
+    def fake_analysis(
+        image,
+        *,
+        include_visualisations=True,
+        visualisation_keys=None,
+        activation_colour_map="aurora",
+        model_key="alexnet",
+    ):
+        captured["model_key"] = model_key
         captured["include_visualisations"] = include_visualisations
         captured["visualisation_keys"] = visualisation_keys
+        captured["activation_colour_map"] = activation_colour_map
         return AlexNetAnalysis(predictions=[Prediction(label="test", probability=0.5)], visualisations=[])
 
-    monkeypatch.setattr(demo_app, "run_alexnet_analysis", fake_analysis)
+    monkeypatch.setattr(demo_app, "run_model_analysis", fake_analysis)
     image = Image.new("RGB", (8, 8), color=(0, 0, 0))
 
     response = demo_app._run_live_analysis_response(
@@ -125,7 +183,14 @@ def test_live_response_passes_selected_visualisation_keys(monkeypatch) -> None:
         source="camera",
         include_visualisations=True,
         visualisation_keys={"conv1"},
+        activation_colour_map="calm",
+        model_key="resnet50",
     )
 
     assert response.status_code == 200
-    assert captured == {"include_visualisations": True, "visualisation_keys": {"conv1"}}
+    assert captured == {
+        "model_key": "resnet50",
+        "include_visualisations": True,
+        "visualisation_keys": {"conv1"},
+        "activation_colour_map": "calm",
+    }

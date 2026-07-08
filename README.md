@@ -1,16 +1,16 @@
 # How Does a Neural Network See?
 
-A local-first Open Day demo that uses AlexNet to explain how a trained vision model responds at different layers.
+A local-first Open Day demo that uses AlexNet and newer CNNs to explain how trained vision models respond at different layers.
 
-The app now uses FastAPI with a simple dependency-free browser UI. The current MVP supports curated image discovery, optional local camera capture, a selectable AlexNet layer diagram, reset behaviour, top-5 AlexNet predictions when pretrained weights are available locally, activation-grid visualisations, and graceful messaging when live weights are unavailable. Full fallback replay will be added in a later phase.
+The app now uses FastAPI with a simple dependency-free browser UI. The current MVP supports curated image discovery, optional local camera capture, selectable model and layer diagrams, reset behaviour, top-5 ImageNet predictions when pretrained weights are available locally, activation-grid visualisations, and graceful messaging when live weights are unavailable. Full fallback replay will be added in a later phase.
 
 ## What the demo shows
 
 The demo is designed for a public university booth. A staff member or visitor selects a curated local image or explicitly starts the local camera mode, then can view:
 
 - the selected input image or opt-in camera frame as the diagram’s **Input** layer;
-- top-5 AlexNet predictions through the selectable **Prediction** layer;
-- selectable layer responses across the AlexNet path;
+- top-5 ImageNet predictions through the selectable **Prediction** layer;
+- selectable layer responses for AlexNet, ResNet-50, or MobileNetV3 Large;
 - simple feature-map grid visualisations;
 - short public captions for each stage.
 
@@ -97,8 +97,8 @@ Camera mode was added as an explicit opt-in booth feature.
 - The browser asks for camera permission.
 - The input preview stays in the local browser and appears as the diagram’s **Input** layer.
 - Press **Capture + run** to send one still frame to the local FastAPI app.
-- Press **Start continuous AlexNet** to repeatedly analyse the latest camera frame while the button is active.
-- Continuous mode runs one local AlexNet request at a time and updates predictions plus the currently selected layer view as fast as the model completes frames. It captures only the selected activation layer during continuous mode so it can keep grabbing fresh frames instead of rendering every layer on every frame. Feature-map tile positions are fixed so the mini images do not swap places between frames.
+- Press **Start continuous model** to repeatedly analyse the latest camera frame while the button is active.
+- Continuous mode runs one local model request at a time and updates predictions plus the currently selected layer view as fast as the model completes frames. It captures only the selected activation layer during continuous mode so it can keep grabbing fresh frames instead of rendering every layer on every frame. Feature-map tile positions are fixed so the mini images do not swap places between frames.
 - Frames are analysed in memory and are not written to disk.
 - Do not use camera mode for visitors who do not consent.
 
@@ -121,7 +121,7 @@ assets/fallback/
 The Open Day port is fixed by convention:
 
 ```bash
-.venv/bin/uvicorn app:app --host 127.0.0.1 --port 3450
+.venv/bin/uvicorn app:app --host 127.0.0.1 --port 3450 --log-level warning --no-access-log
 ```
 
 Or use:
@@ -164,9 +164,9 @@ Do not use random fallback ports for Open Day mode.
 
 The reset button clears the current image selection, stops any active camera preview and continuous run loop, clears results, and returns the app to the default instruction screen.
 
-Fallback/replay mode is shown in the UI now, but full fallback asset playback is part of a later build phase. Live AlexNet prediction failures are displayed as public setup messages rather than app crashes.
+Fallback/replay mode is shown in the UI now, but full fallback asset playback is part of a later build phase. Live model prediction failures are displayed as public setup messages rather than app crashes.
 
-Live mode currently shows fixed-channel feature-map grids for the selectable AlexNet convolution and pooling layers. Each tile position represents the same channel across frames, and each channel is normalised for display. Dark navy/purple means quieter response; cyan, yellow, and white mean stronger response.
+Live mode currently shows fixed-channel feature-map grids for selectable layers in AlexNet, ResNet-50, and MobileNetV3 Large. Each tile position represents the same channel across frames, and each channel is normalised for display. The selectable layer image colour palettes change only the display colours: darker regions are quieter responses, while brighter regions are stronger responses.
 
 ## Public booth script
 
@@ -203,12 +203,12 @@ pwsh -NoProfile -File scripts/stop_dev.ps1
 Then run the app with the explicit Open Day command:
 
 ```bash
-.venv/bin/uvicorn app:app --host 127.0.0.1 --port 3450
+.venv/bin/uvicorn app:app --host 127.0.0.1 --port 3450 --log-level warning --no-access-log
 ```
 
-### AlexNet weights are unavailable
+### Model weights are unavailable
 
-The app fails gracefully if pretrained AlexNet weights are unavailable locally. Run setup on a networked machine once so torchvision can cache the weights, or use fallback replay after Phase 5 assets are precomputed.
+The app fails gracefully if pretrained weights for the selected model are unavailable locally. Run setup on a networked machine once so torchvision can cache the weights, or choose another model whose weights are already cached.
 
 ## Open Day readiness checklist
 

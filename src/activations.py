@@ -1,4 +1,4 @@
-"""Activation capture helpers for the selectable AlexNet layers."""
+"""Activation capture helpers for selectable vision-model layers."""
 
 from __future__ import annotations
 
@@ -19,7 +19,7 @@ class LayerSpec:
     public_note: str
 
 
-SELECTED_LAYER_SPECS: tuple[LayerSpec, ...] = (
+ALEXNET_LAYER_SPECS: tuple[LayerSpec, ...] = (
     LayerSpec(
         key="conv1",
         label="Conv 1",
@@ -85,7 +85,131 @@ SELECTED_LAYER_SPECS: tuple[LayerSpec, ...] = (
     ),
 )
 
+RESNET50_LAYER_SPECS: tuple[LayerSpec, ...] = (
+    LayerSpec(
+        key="stem",
+        label="Stem",
+        module_path="relu",
+        caption_key="Early features",
+        public_note="The first ResNet-50 stage responds to simple visual patterns after the opening convolution.",
+    ),
+    LayerSpec(
+        key="maxpool",
+        label="Max pool",
+        module_path="maxpool",
+        caption_key="Pooling",
+        public_note="Pooling keeps strong nearby responses and reduces the spatial size before the residual stages.",
+    ),
+    LayerSpec(
+        key="layer1",
+        label="Residual 1",
+        module_path="layer1",
+        caption_key="Mid features",
+        public_note="The first residual block group combines simple responses into richer local features.",
+    ),
+    LayerSpec(
+        key="layer2",
+        label="Residual 2",
+        module_path="layer2",
+        caption_key="Mid features",
+        public_note="This residual block group builds more complex textures and repeated shapes.",
+    ),
+    LayerSpec(
+        key="layer3",
+        label="Residual 3",
+        module_path="layer3",
+        caption_key="Deep features",
+        public_note="Deeper residual features combine earlier patterns into more specialised object-part responses.",
+    ),
+    LayerSpec(
+        key="layer4",
+        label="Residual 4",
+        module_path="layer4",
+        caption_key="Deep features",
+        public_note="The final residual group produces compact, high-level feature maps for classification.",
+    ),
+    LayerSpec(
+        key="avgpool",
+        label="Avg pool",
+        module_path="avgpool",
+        caption_key="Avg pool",
+        public_note="Adaptive average pooling turns the final feature maps into one compact value per channel.",
+    ),
+)
+
+MOBILENET_V3_LARGE_LAYER_SPECS: tuple[LayerSpec, ...] = (
+    LayerSpec(
+        key="stem",
+        label="Stem",
+        module_path="features.0",
+        caption_key="Early features",
+        public_note="The opening MobileNetV3 stage responds to simple visual patterns using efficient convolutions.",
+    ),
+    LayerSpec(
+        key="early",
+        label="Early block",
+        module_path="features.2",
+        caption_key="Early features",
+        public_note="Early inverted residual blocks keep useful local patterns while staying fast for live use.",
+    ),
+    LayerSpec(
+        key="middle1",
+        label="Middle 1",
+        module_path="features.4",
+        caption_key="Mid features",
+        public_note="Middle MobileNetV3 features combine simple patterns into richer local responses.",
+    ),
+    LayerSpec(
+        key="middle2",
+        label="Middle 2",
+        module_path="features.7",
+        caption_key="Mid features",
+        public_note="Later middle blocks build more structured textures and object-part responses.",
+    ),
+    LayerSpec(
+        key="deep",
+        label="Deep block",
+        module_path="features.13",
+        caption_key="Deep features",
+        public_note="Deep MobileNetV3 features are compact responses useful for classification.",
+    ),
+    LayerSpec(
+        key="final",
+        label="Final conv",
+        module_path="features.16",
+        caption_key="Deep features",
+        public_note="The final convolution prepares high-level features for the classifier.",
+    ),
+    LayerSpec(
+        key="avgpool",
+        label="Avg pool",
+        module_path="avgpool",
+        caption_key="Avg pool",
+        public_note="Adaptive average pooling turns the final feature maps into a compact channel summary.",
+    ),
+)
+
+MODEL_LAYER_SPECS: dict[str, tuple[LayerSpec, ...]] = {
+    "alexnet": ALEXNET_LAYER_SPECS,
+    "resnet50": RESNET50_LAYER_SPECS,
+    "mobilenet_v3_large": MOBILENET_V3_LARGE_LAYER_SPECS,
+}
+
+# Backwards-compatible names used by older tests and helpers.
+SELECTED_LAYER_SPECS = ALEXNET_LAYER_SPECS
 SELECTED_LAYER_NAMES = [spec.label for spec in SELECTED_LAYER_SPECS]
+
+
+def normalise_model_key(model_key: str | None) -> str:
+    """Return a supported model key, defaulting to AlexNet."""
+    if model_key in MODEL_LAYER_SPECS:
+        return str(model_key)
+    return "alexnet"
+
+
+def layer_specs_for_model(model_key: str | None) -> tuple[LayerSpec, ...]:
+    """Return public capture specs for a supported model."""
+    return MODEL_LAYER_SPECS[normalise_model_key(model_key)]
 
 
 def get_module_by_path(model: torch.nn.Module, module_path: str) -> torch.nn.Module:

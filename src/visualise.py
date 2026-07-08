@@ -1,4 +1,4 @@
-"""Feature-map visualisation helpers for AlexNet activations."""
+"""Feature-map visualisation helpers for model activations."""
 
 from __future__ import annotations
 
@@ -9,6 +9,78 @@ from math import ceil
 import numpy as np
 from PIL import Image
 import torch
+
+DEFAULT_ACTIVATION_COLOUR_MAP = "aurora"
+ACTIVATION_COLOUR_MAP_OPTIONS = (
+    ("aurora", "Aurora booth"),
+    ("laboratory", "Laboratory microscope"),
+    ("classroom", "Warm classroom"),
+    ("neon", "Neural neon"),
+    ("calm", "Calm deep learning"),
+    ("signal", "Monochrome signal"),
+)
+ACTIVATION_COLOUR_MAPS = {
+    "aurora": (
+        (2, 6, 23),
+        (24, 18, 77),
+        (80, 31, 140),
+        (37, 99, 235),
+        (14, 165, 233),
+        (45, 212, 191),
+        (250, 204, 21),
+        (255, 247, 237),
+    ),
+    "laboratory": (
+        (2, 7, 18),
+        (5, 35, 49),
+        (12, 74, 110),
+        (14, 116, 144),
+        (20, 184, 166),
+        (56, 189, 248),
+        (250, 204, 21),
+        (255, 251, 235),
+    ),
+    "classroom": (
+        (18, 11, 8),
+        (61, 32, 15),
+        (124, 45, 18),
+        (194, 65, 12),
+        (249, 115, 22),
+        (251, 146, 60),
+        (253, 230, 138),
+        (255, 251, 235),
+    ),
+    "neon": (
+        (5, 1, 15),
+        (46, 7, 78),
+        (109, 40, 217),
+        (139, 92, 246),
+        (236, 72, 153),
+        (34, 211, 238),
+        (244, 114, 182),
+        (255, 241, 242),
+    ),
+    "calm": (
+        (4, 16, 20),
+        (8, 47, 58),
+        (13, 93, 99),
+        (15, 118, 110),
+        (45, 212, 191),
+        (96, 165, 250),
+        (167, 243, 208),
+        (240, 253, 250),
+    ),
+    "signal": (
+        (5, 5, 5),
+        (24, 24, 27),
+        (39, 39, 42),
+        (63, 98, 18),
+        (101, 163, 13),
+        (132, 204, 22),
+        (190, 242, 100),
+        (248, 250, 252),
+    ),
+}
 
 
 def normalise_layer_name(layer_name: str) -> str:
@@ -23,13 +95,15 @@ def activation_grid_png_base64(
     columns: int = 8,
     tile_size: int = 56,
     gap: int = 4,
+    colour_map: str = DEFAULT_ACTIVATION_COLOUR_MAP,
 ) -> str:
     """Render fixed activation channels as a vivid feature-map grid.
 
     Grid positions are stable across frames: tile 1 is always the same channel,
     tile 2 is always the same channel, and so on. Each channel is normalised
-    independently so visitors can see spatial response patterns. The result is
-    a PNG data URI suitable for a local web UI.
+    independently so visitors can see spatial response patterns. The selected
+    colour map changes only the display palette, not the model result. The
+    result is a PNG data URI suitable for a local web UI.
     """
     if activation.ndim != 4:
         raise ValueError("Expected activation tensor with shape (batch, channels, height, width).")
@@ -47,7 +121,7 @@ def activation_grid_png_base64(
 
     for idx, feature_map in enumerate(selected):
         row, col = divmod(idx, columns)
-        tile = _render_feature_tile(feature_map.numpy(), tile_size=tile_size)
+        tile = _render_feature_tile(feature_map.numpy(), tile_size=tile_size, colour_map=colour_map)
         x = gap + col * (tile_size + gap)
         y = gap + row * (tile_size + gap)
         grid.paste(tile, (x, y))
@@ -63,7 +137,7 @@ def fixed_channel_indices(channel_count: int, *, max_channels: int) -> list[int]
 
     The first `max_channels` channels are used intentionally. This makes the
     grid steady in live camera mode because each tile position represents the
-    same AlexNet channel on every frame.
+    same model channel on every frame.
     """
     if channel_count < 1:
         return []
@@ -79,7 +153,19 @@ def select_fixed_channels(maps: torch.Tensor, *, max_channels: int) -> torch.Ten
     return maps[indices]
 
 
-def _render_feature_tile(feature_map: np.ndarray, *, tile_size: int) -> Image.Image:
+def normalise_activation_colour_map(colour_map: str | None) -> str:
+    """Return a supported activation colour-map key."""
+    if colour_map in ACTIVATION_COLOUR_MAPS:
+        return str(colour_map)
+    return DEFAULT_ACTIVATION_COLOUR_MAP
+
+
+def _render_feature_tile(
+    feature_map: np.ndarray,
+    *,
+    tile_size: int,
+    colour_map: str = DEFAULT_ACTIVATION_COLOUR_MAP,
+) -> Image.Image:
     """Convert one feature map to a vivid coloured tile."""
     feature_map = feature_map.astype(np.float32)
     low = float(np.percentile(feature_map, 1))
@@ -89,32 +175,23 @@ def _render_feature_tile(feature_map: np.ndarray, *, tile_size: int) -> Image.Im
     else:
         normalised = np.zeros_like(feature_map, dtype=np.float32)
 
-    coloured = apply_activation_colour_map(normalised)
+    coloured = apply_activation_colour_map(normalised, colour_map=colour_map)
     tile = Image.fromarray(coloured, mode="RGB")
     return tile.resize((tile_size, tile_size), resample=Image.Resampling.BILINEAR)
 
 
-def apply_activation_colour_map(values: np.ndarray) -> np.ndarray:
+def apply_activation_colour_map(
+    values: np.ndarray,
+    colour_map: str = DEFAULT_ACTIVATION_COLOUR_MAP,
+) -> np.ndarray:
     """Apply a high-contrast booth-friendly activation colour map.
 
-    The palette keeps low responses close to dark navy so quieter regions do
-    not distract, then moves through purple, blue, cyan, yellow, and warm white
-    for stronger responses. It is intentionally vivid for a large public
-    display while remaining deterministic and dependency-free.
+    Each palette keeps low responses dark so quieter regions do not distract,
+    then moves towards brighter colours for stronger responses. This is only a
+    display choice; it does not change the model output.
     """
-    anchors = np.array(
-        [
-            [2, 6, 23],
-            [24, 18, 77],
-            [80, 31, 140],
-            [37, 99, 235],
-            [14, 165, 233],
-            [45, 212, 191],
-            [250, 204, 21],
-            [255, 247, 237],
-        ],
-        dtype=np.float32,
-    )
+    colour_map = normalise_activation_colour_map(colour_map)
+    anchors = np.array(ACTIVATION_COLOUR_MAPS[colour_map], dtype=np.float32)
     values = np.clip(values, 0.0, 1.0)
     # Slight gamma lift makes meaningful responses pop without washing out the
     # dark background.

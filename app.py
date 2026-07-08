@@ -1,9 +1,10 @@
-"""FastAPI app for the AlexNet Open Day demo."""
+"""FastAPI app for the Open Day vision model demo."""
 
 from __future__ import annotations
 
 import base64
 import binascii
+import json
 from io import BytesIO
 from pathlib import Path
 from typing import Any
@@ -15,31 +16,49 @@ from PIL import Image, UnidentifiedImageError
 
 from src.captions import CAPTIONS
 from src.demo_images import DEMO_IMAGES_DIR, discover_images, format_image_label
-from src.model import ModelUnavailableError, run_alexnet_analysis
+from src.activations import normalise_model_key
+from src.model import ModelUnavailableError, run_model_analysis, supported_model_options
+from src.visualise import (
+    ACTIVATION_COLOUR_MAP_OPTIONS,
+    DEFAULT_ACTIVATION_COLOUR_MAP,
+    normalise_activation_colour_map,
+)
 
 APP_TITLE = "How Does a Neural Network See?"
+THEME_OPTIONS = (
+    ("aurora", "Aurora booth"),
+    ("laboratory", "Laboratory microscope"),
+    ("classroom", "Warm classroom"),
+    ("neon", "Neural neon"),
+    ("calm", "Calm deep learning"),
+    ("signal", "Monochrome signal"),
+)
 
 app = FastAPI(
-    title="AlexNet Vision Demo",
-    description="Local-first Open Day demo showing AlexNet layer responses and predictions.",
+    title="Vision Model Demo",
+    description="Local-first Open Day demo showing vision model layer responses and predictions.",
     version="0.2.0",
 )
 
 
 class RunRequest(BaseModel):
-    """Request body for running AlexNet on a curated image."""
+    """Request body for running a supported model on a curated image."""
 
     image_name: str = Field(..., min_length=1)
     fallback: bool = False
+    model_key: str = "alexnet"
+    activation_colour_map: str = Field(DEFAULT_ACTIVATION_COLOUR_MAP, min_length=1, max_length=32)
 
 
 class CameraRunRequest(BaseModel):
-    """Request body for running AlexNet on a locally captured camera frame."""
+    """Request body for running a supported model on a locally captured camera frame."""
 
     image_data: str = Field(..., min_length=1)
     fallback: bool = False
+    model_key: str = "alexnet"
     include_visualisations: bool = True
     visualisation_keys: list[str] | None = None
+    activation_colour_map: str = Field(DEFAULT_ACTIVATION_COLOUR_MAP, min_length=1, max_length=32)
 
 
 def _image_lookup() -> dict[str, Path]:
@@ -82,15 +101,21 @@ def _run_live_analysis_response(
     image: Image.Image,
     *,
     source: str,
+    model_key: str = "alexnet",
     include_visualisations: bool = True,
     visualisation_keys: set[str] | None = None,
+    activation_colour_map: str = DEFAULT_ACTIVATION_COLOUR_MAP,
 ) -> JSONResponse:
-    """Run AlexNet analysis and return a consistent JSON response."""
+    """Run model analysis and return a consistent JSON response."""
+    model_key = normalise_model_key(model_key)
+    activation_colour_map = normalise_activation_colour_map(activation_colour_map)
     try:
-        analysis = run_alexnet_analysis(
+        analysis = run_model_analysis(
             image,
+            model_key=model_key,
             include_visualisations=include_visualisations,
             visualisation_keys=visualisation_keys,
+            activation_colour_map=activation_colour_map,
         )
     except ModelUnavailableError as exc:
         return JSONResponse(
@@ -99,10 +124,12 @@ def _run_live_analysis_response(
                 "mode": "live",
                 "source": source,
                 "message": str(exc),
-                "help": "Run the setup script and pre-download AlexNet weights, or use fallback replay once assets have been precomputed.",
+                "help": "Run the setup script on a networked machine once to cache the selected model weights, or choose another cached model.",
                 "predictions": [],
                 "visualisations": [],
                 "visualisations_included": include_visualisations,
+                "activation_colour_map": activation_colour_map,
+                "model_key": model_key,
             }
         )
 
@@ -111,10 +138,12 @@ def _run_live_analysis_response(
             "ok": True,
             "mode": "live",
             "source": source,
-            "message": "AlexNet returned likely ImageNet labels. These can be wrong.",
+            "message": "The selected model returned likely ImageNet labels. These can be wrong.",
             "predictions": [prediction.to_dict() for prediction in analysis.predictions],
             "visualisations": [visualisation.to_dict() for visualisation in analysis.visualisations],
             "visualisations_included": include_visualisations,
+            "activation_colour_map": activation_colour_map,
+            "model_key": model_key,
         }
     )
 
@@ -158,9 +187,15 @@ def get_captions() -> dict[str, str]:
     return CAPTIONS
 
 
+@app.get("/api/models")
+def get_models() -> dict[str, object]:
+    """Return supported local model options for the UI."""
+    return {"models": list(supported_model_options()), "default": "alexnet"}
+
+
 @app.post("/api/run")
 def run_demo(request: RunRequest) -> JSONResponse:
-    """Run AlexNet top-5 inference for a curated image.
+    """Run top-5 inference for a curated image.
 
     Fallback replay is kept as a visible mode, but full fallback asset playback
     will be implemented in the next phase. Live inference failures are returned
@@ -174,9 +209,11 @@ def run_demo(request: RunRequest) -> JSONResponse:
                 "ok": False,
                 "mode": "fallback",
                 "source": "curated",
-                "message": "Fallback replay assets will be wired in Phase 5. Turn replay mode off for live AlexNet inference.",
+                "message": "Fallback replay assets will be wired in Phase 5. Turn replay mode off for live model inference.",
                 "predictions": [],
                 "visualisations": [],
+                "activation_colour_map": request.activation_colour_map,
+                "model_key": normalise_model_key(request.model_key),
             }
         )
 
@@ -195,12 +232,17 @@ def run_demo(request: RunRequest) -> JSONResponse:
             status_code=400,
         )
 
-    return _run_live_analysis_response(image, source="curated")
+    return _run_live_analysis_response(
+        image,
+        source="curated",
+        model_key=request.model_key,
+        activation_colour_map=request.activation_colour_map,
+    )
 
 
 @app.post("/api/run-camera")
 def run_camera_demo(request: CameraRunRequest) -> JSONResponse:
-    """Run AlexNet on a browser-captured camera frame without saving it."""
+    """Run a supported model on a browser-captured camera frame without saving it."""
     if request.fallback:
         return JSONResponse(
             {
@@ -210,6 +252,8 @@ def run_camera_demo(request: CameraRunRequest) -> JSONResponse:
                 "message": "Fallback replay uses curated precomputed assets, not live camera frames. Turn replay mode off for camera inference.",
                 "predictions": [],
                 "visualisations": [],
+                "activation_colour_map": request.activation_colour_map,
+                "model_key": normalise_model_key(request.model_key),
             }
         )
 
@@ -231,13 +275,22 @@ def run_camera_demo(request: CameraRunRequest) -> JSONResponse:
     return _run_live_analysis_response(
         image,
         source="camera",
+        model_key=request.model_key,
         include_visualisations=request.include_visualisations,
         visualisation_keys=set(request.visualisation_keys or ()) or None,
+        activation_colour_map=request.activation_colour_map,
     )
 
 
 def _render_index_html() -> str:
     """Return dependency-free HTML, CSS, and JavaScript for the booth UI."""
+    theme_options_html = "\n".join(
+        f'          <option value="{value}">{label}</option>' for value, label in THEME_OPTIONS
+    )
+    activation_colour_options_html = "\n".join(
+        f'          <option value="{value}">{label}</option>' for value, label in ACTIVATION_COLOUR_MAP_OPTIONS
+    )
+    model_options_json = json.dumps(supported_model_options())
     return f"""
 <!doctype html>
 <html lang="en-AU">
@@ -250,6 +303,7 @@ def _render_index_html() -> str:
       color-scheme: dark;
       --bg: #080814;
       --bg-2: #10142a;
+      --bg-3: #070711;
       --panel: rgba(15, 23, 42, 0.82);
       --panel-2: #172033;
       --panel-3: #0d1324;
@@ -258,29 +312,126 @@ def _render_index_html() -> str:
       --accent: #22d3ee;
       --accent-2: #8b5cf6;
       --accent-3: #f59e0b;
+      --accent-rgb: 34, 211, 238;
+      --accent-2-rgb: 139, 92, 246;
+      --accent-3-rgb: 245, 158, 11;
+      --heading-2: #67e8f9;
+      --heading-3: #c4b5fd;
+      --heading-4: #fbbf24;
+      --button-text: #03111d;
       --danger: #fecaca;
       --ok: #bbf7d0;
       --border: rgba(148, 163, 184, 0.22);
       --glow: rgba(34, 211, 238, 0.22);
       font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     }}
+    body[data-theme="laboratory"] {{
+      --bg: #06111f;
+      --bg-2: #0b2535;
+      --bg-3: #020712;
+      --panel-2: #102b3d;
+      --panel-3: #071522;
+      --muted: #c2d3df;
+      --accent: #38bdf8;
+      --accent-2: #14b8a6;
+      --accent-3: #facc15;
+      --accent-rgb: 56, 189, 248;
+      --accent-2-rgb: 20, 184, 166;
+      --accent-3-rgb: 250, 204, 21;
+      --heading-2: #7dd3fc;
+      --heading-3: #5eead4;
+      --heading-4: #fef08a;
+      --button-text: #02131f;
+    }}
+    body[data-theme="classroom"] {{
+      --bg: #111827;
+      --bg-2: #2b1b13;
+      --bg-3: #120b08;
+      --panel-2: #382517;
+      --panel-3: #21140c;
+      --muted: #ead0bd;
+      --accent: #fb923c;
+      --accent-2: #f97316;
+      --accent-3: #fde68a;
+      --accent-rgb: 251, 146, 60;
+      --accent-2-rgb: 249, 115, 22;
+      --accent-3-rgb: 253, 230, 138;
+      --heading-2: #fed7aa;
+      --heading-3: #fdba74;
+      --heading-4: #fde68a;
+      --button-text: #1b1007;
+    }}
+    body[data-theme="neon"] {{
+      --bg: #05010f;
+      --bg-2: #160329;
+      --bg-3: #05000b;
+      --panel-2: #2a1248;
+      --panel-3: #12051f;
+      --muted: #d9c5ef;
+      --accent: #ec4899;
+      --accent-2: #8b5cf6;
+      --accent-3: #22d3ee;
+      --accent-rgb: 236, 72, 153;
+      --accent-2-rgb: 139, 92, 246;
+      --accent-3-rgb: 34, 211, 238;
+      --heading-2: #f9a8d4;
+      --heading-3: #c4b5fd;
+      --heading-4: #67e8f9;
+      --button-text: #140414;
+    }}
+    body[data-theme="calm"] {{
+      --bg: #071a1f;
+      --bg-2: #0b2731;
+      --bg-3: #041014;
+      --panel-2: #12313d;
+      --panel-3: #071820;
+      --muted: #c0d7dc;
+      --accent: #2dd4bf;
+      --accent-2: #60a5fa;
+      --accent-3: #a7f3d0;
+      --accent-rgb: 45, 212, 191;
+      --accent-2-rgb: 96, 165, 250;
+      --accent-3-rgb: 167, 243, 208;
+      --heading-2: #5eead4;
+      --heading-3: #93c5fd;
+      --heading-4: #a7f3d0;
+      --button-text: #041715;
+    }}
+    body[data-theme="signal"] {{
+      --bg: #0a0a0a;
+      --bg-2: #18181b;
+      --bg-3: #050505;
+      --panel-2: #27272a;
+      --panel-3: #18181b;
+      --muted: #d4d4d8;
+      --accent: #84cc16;
+      --accent-2: #bef264;
+      --accent-3: #f8fafc;
+      --accent-rgb: 132, 204, 22;
+      --accent-2-rgb: 190, 242, 100;
+      --accent-3-rgb: 248, 250, 252;
+      --heading-2: #bef264;
+      --heading-3: #84cc16;
+      --heading-4: #f8fafc;
+      --button-text: #071004;
+    }}
     * {{ box-sizing: border-box; }}
-    body {{ margin: 0; background: radial-gradient(circle at 12% 6%, rgba(34,211,238,0.22) 0, transparent 28%), radial-gradient(circle at 86% 12%, rgba(139,92,246,0.24) 0, transparent 30%), linear-gradient(135deg, var(--bg) 0%, var(--bg-2) 56%, #070711 100%); color: var(--text); }}
+    body {{ margin: 0; background: radial-gradient(circle at 12% 6%, rgba(var(--accent-rgb), 0.22) 0, transparent 28%), radial-gradient(circle at 86% 12%, rgba(var(--accent-2-rgb), 0.24) 0, transparent 30%), linear-gradient(135deg, var(--bg) 0%, var(--bg-2) 56%, var(--bg-3) 100%); color: var(--text); }}
     body::before {{ content: ""; position: fixed; inset: 0; pointer-events: none; background-image: linear-gradient(rgba(255,255,255,0.035) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.03) 1px, transparent 1px); background-size: 42px 42px; mask-image: radial-gradient(circle at top, black, transparent 72%); }}
     main {{ width: min(1180px, calc(100vw - 32px)); margin: 0 auto; padding: 28px 0 44px; position: relative; }}
     header {{ margin-bottom: 22px; }}
-    h1 {{ font-size: clamp(2rem, 4vw, 4.5rem); line-height: 1; margin: 0 0 14px; letter-spacing: -0.05em; background: linear-gradient(90deg, #f8fbff, #67e8f9 45%, #c4b5fd 76%, #fbbf24); -webkit-background-clip: text; background-clip: text; color: transparent; }}
+    h1 {{ font-size: clamp(2rem, 4vw, 4.5rem); line-height: 1; margin: 0 0 14px; letter-spacing: -0.05em; background: linear-gradient(90deg, var(--text), var(--heading-2) 45%, var(--heading-3) 76%, var(--heading-4)); -webkit-background-clip: text; background-clip: text; color: transparent; }}
     h2 {{ margin: 0 0 14px; font-size: 1.25rem; }}
     p {{ color: var(--muted); line-height: 1.55; }}
     .grid {{ display: grid; grid-template-columns: 360px 1fr; gap: 20px; align-items: start; }}
-    .card {{ background: linear-gradient(180deg, rgba(15,23,42,0.92), rgba(10,15,30,0.88)); border: 1px solid var(--border); border-radius: 24px; padding: 20px; box-shadow: 0 24px 70px rgba(0,0,0,0.38), 0 0 38px rgba(34,211,238,0.07); backdrop-filter: blur(14px); }}
+    .card {{ background: linear-gradient(180deg, rgba(15,23,42,0.92), rgba(10,15,30,0.88)); border: 1px solid var(--border); border-radius: 24px; padding: 20px; box-shadow: 0 24px 70px rgba(0,0,0,0.38), 0 0 38px rgba(var(--accent-rgb), 0.07); backdrop-filter: blur(14px); }}
     .stack {{ display: grid; gap: 16px; }}
     label {{ display: block; margin-bottom: 8px; font-weight: 700; }}
     select, button {{ width: 100%; border-radius: 14px; border: 1px solid var(--border); padding: 12px 14px; font: inherit; }}
-    select {{ background: linear-gradient(180deg, #1b2540, #121a2f); color: var(--text); }}
-    button {{ background: linear-gradient(135deg, var(--accent), var(--accent-2)); color: #03111d; font-weight: 900; cursor: pointer; box-shadow: 0 12px 30px rgba(34,211,238,0.22); transition: transform 120ms ease, filter 120ms ease, box-shadow 120ms ease; }}
-    button:hover:not(:disabled) {{ transform: translateY(-1px); filter: brightness(1.08); box-shadow: 0 16px 38px rgba(139,92,246,0.26); }}
-    button.secondary {{ background: linear-gradient(180deg, #27324d, #1a2338); color: var(--text); box-shadow: none; }}
+    select {{ background: linear-gradient(180deg, var(--panel-2), var(--panel-3)); color: var(--text); }}
+    button {{ background: linear-gradient(135deg, var(--accent), var(--accent-2)); color: var(--button-text); font-weight: 900; cursor: pointer; box-shadow: 0 12px 30px rgba(var(--accent-rgb), 0.22); transition: transform 120ms ease, filter 120ms ease, box-shadow 120ms ease; }}
+    button:hover:not(:disabled) {{ transform: translateY(-1px); filter: brightness(1.08); box-shadow: 0 16px 38px rgba(var(--accent-2-rgb), 0.26); }}
+    button.secondary {{ background: linear-gradient(180deg, var(--panel-2), var(--panel-3)); color: var(--text); box-shadow: none; }}
     button:disabled {{ opacity: 0.5; cursor: not-allowed; box-shadow: none; }}
     .toggle {{ display: flex; gap: 10px; align-items: center; color: var(--muted); }}
     .toggle input {{ width: auto; transform: scale(1.2); accent-color: var(--accent); }}
@@ -291,30 +442,39 @@ def _render_index_html() -> str:
     .message.error {{ background: linear-gradient(180deg, rgba(127,29,29,0.46), rgba(69,10,10,0.34)); color: var(--danger); border-color: rgba(248,113,113,0.3); }}
     .message.ok {{ background: linear-gradient(180deg, rgba(20,83,45,0.45), rgba(6,78,59,0.34)); color: var(--ok); border-color: rgba(74,222,128,0.28); }}
     .bar {{ grid-column: 1 / -1; height: 9px; background: #1f2941; border-radius: 999px; overflow: hidden; }}
-    .bar span {{ display: block; height: 100%; background: linear-gradient(90deg, #22d3ee, #a78bfa, #f59e0b); box-shadow: 0 0 18px rgba(34,211,238,0.55); }}
+    .bar span {{ display: block; height: 100%; background: linear-gradient(90deg, var(--accent), var(--accent-2), var(--accent-3)); box-shadow: 0 0 18px rgba(var(--accent-rgb), 0.55); }}
     .muted {{ color: var(--muted); }}
-    .network {{ margin-bottom: 16px; padding: 16px; border-radius: 18px; background: radial-gradient(circle at 20% 45%, rgba(34,211,238,0.18), transparent 32%), radial-gradient(circle at 78% 50%, rgba(245,158,11,0.13), transparent 35%), #030611; border: 1px solid var(--border); overflow: hidden; }}
-    .network svg {{ width: 100%; height: auto; display: block; filter: drop-shadow(0 0 16px rgba(34,211,238,0.12)); }}
-    .network .layer {{ fill: rgba(34, 211, 238, 0.13); stroke: rgba(226, 232, 240, 0.78); stroke-width: 2; }}
-    .network .layer.active, .network .layer:focus {{ fill: rgba(245, 158, 11, 0.38); stroke: #fbbf24; outline: none; }}
+    .network {{ margin-bottom: 16px; padding: 16px; border-radius: 18px; background: radial-gradient(circle at 20% 45%, rgba(var(--accent-rgb), 0.18), transparent 32%), radial-gradient(circle at 78% 50%, rgba(var(--accent-3-rgb), 0.13), transparent 35%), #030611; border: 1px solid var(--border); overflow: hidden; }}
+    .network svg {{ width: 100%; height: auto; display: block; filter: drop-shadow(0 0 16px rgba(var(--accent-rgb), 0.12)); }}
+    .network .layer {{ fill: rgba(var(--accent-rgb), 0.13); stroke: rgba(226, 232, 240, 0.78); stroke-width: 2; }}
+    .network .layer.active, .network .layer:focus {{ fill: rgba(var(--accent-3-rgb), 0.38); stroke: var(--heading-4); outline: none; }}
     .network .connector {{ stroke: rgba(148, 163, 184, 0.5); stroke-width: 3; stroke-linecap: round; }}
     .network text {{ fill: #f8fbff; font-size: 13px; font-weight: 900; text-anchor: middle; dominant-baseline: middle; pointer-events: none; }}
     .network .stage-note {{ fill: #b9c4d8; font-size: 11px; font-weight: 700; }}
-    .layer-detail {{ margin: 0 0 16px; display: grid; grid-template-columns: minmax(260px, 1.4fr) minmax(220px, 0.8fr); gap: 16px; align-items: start; background: linear-gradient(180deg, rgba(8,16,36,0.98), rgba(4,7,16,0.98)); border: 1px solid rgba(34,211,238,0.2); border-radius: 18px; padding: 16px; }}
+    .layer-detail {{ margin: 0 0 16px; display: grid; grid-template-columns: minmax(260px, 1.4fr) minmax(220px, 0.8fr); gap: 16px; align-items: start; background: linear-gradient(180deg, rgba(8,16,36,0.98), rgba(4,7,16,0.98)); border: 1px solid rgba(var(--accent-rgb), 0.2); border-radius: 18px; padding: 16px; }}
     .layer-detail.placeholder {{ display: block; }}
     .layer-detail img, .layer-detail video {{ width: 100%; display: block; border-radius: 14px; background: #020208; border: 1px solid rgba(255,255,255,0.09); box-shadow: 0 24px 60px rgba(0,0,0,0.32); }}
     .layer-detail video {{ transform: scaleX(-1); }}
     .camera-capture-source {{ position: fixed; width: 1px; height: 1px; left: -10px; top: -10px; opacity: 0; pointer-events: none; }}
-    .detail-copy h3 {{ margin: 0 0 8px; font-size: 1.18rem; color: #fef3c7; }}
+    .detail-copy h3 {{ margin: 0 0 8px; font-size: 1.18rem; color: var(--heading-4); }}
     .detail-copy p {{ margin: 0 0 10px; }}
-    .detail-pill {{ display: inline-flex; align-items: center; margin: 4px 6px 4px 0; padding: 6px 9px; border-radius: 999px; background: rgba(34,211,238,0.12); border: 1px solid rgba(34,211,238,0.22); color: #cffafe; font-size: 0.82rem; font-weight: 800; }}
+    .detail-pill {{ display: inline-flex; align-items: center; margin: 4px 6px 4px 0; padding: 6px 9px; border-radius: 999px; background: rgba(var(--accent-rgb), 0.12); border: 1px solid rgba(var(--accent-rgb), 0.22); color: var(--heading-2); font-size: 0.82rem; font-weight: 800; }}
     .prediction-detail {{ list-style: none; padding: 0; margin: 8px 0 0; display: grid; gap: 8px; }}
     .prediction-detail li {{ display: grid; grid-template-columns: 1fr auto; gap: 10px; align-items: center; padding: 10px; border-radius: 12px; background: rgba(15,23,42,0.74); border: 1px solid rgba(148,163,184,0.14); }}
+    .classifier-visual {{ display: grid; gap: 14px; padding: 14px; border-radius: 16px; background: radial-gradient(circle at 24% 22%, rgba(var(--accent-rgb), 0.16), transparent 38%), rgba(2,6,23,0.58); border: 1px solid rgba(var(--accent-rgb), 0.18); }}
+    .classifier-flow {{ display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; align-items: stretch; }}
+    .classifier-block {{ position: relative; display: grid; place-items: center; min-height: 92px; padding: 12px 8px; border-radius: 14px; text-align: center; background: linear-gradient(180deg, rgba(var(--accent-rgb), 0.16), rgba(var(--accent-2-rgb), 0.08)); border: 1px solid rgba(226,232,240,0.18); font-weight: 900; }}
+    .classifier-block:not(:last-child)::after {{ content: "→"; position: absolute; right: -16px; top: 50%; transform: translateY(-50%); color: var(--heading-4); font-size: 1.35rem; z-index: 2; }}
+    .classifier-block small {{ display: block; margin-top: 6px; color: var(--muted); font-weight: 700; line-height: 1.25; }}
+    .classifier-scores {{ display: grid; gap: 8px; }}
+    .classifier-score {{ display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: center; font-size: 0.9rem; }}
+    .classifier-score .bar {{ grid-column: 1 / -1; }}
     @media (max-width: 980px) {{ .layer-detail {{ grid-template-columns: 1fr; }} }}
+    @media (max-width: 620px) {{ .classifier-flow {{ grid-template-columns: 1fr; gap: 22px; }} .classifier-block:not(:last-child)::after {{ content: "↓"; right: auto; left: 50%; top: auto; bottom: -18px; transform: translateX(-50%); }} }}
     @media (max-width: 860px) {{ .grid {{ grid-template-columns: 1fr; }} }}
   </style>
 </head>
-<body>
+<body data-theme="aurora">
 <main>
   <header>
     <h1>{APP_TITLE}</h1>
@@ -323,6 +483,13 @@ def _render_index_html() -> str:
 
   <section class="grid">
     <aside class="card stack">
+      <div>
+        <h2>Vision model</h2>
+        <label for="modelSelect">Select a model</label>
+        <select id="modelSelect" aria-label="Vision model selector"></select>
+        <p id="modelDescription" class="camera-note">AlexNet is the classic option; newer models usually predict better.</p>
+      </div>
+
       <div>
         <h2>Curated image</h2>
         <label for="imageSelect">Select a booth image</label>
@@ -334,57 +501,42 @@ def _render_index_html() -> str:
         <div class="camera-actions">
           <button id="startCameraButton" class="secondary" type="button">Start camera</button>
           <button id="cameraRunButton" type="button" disabled>Capture + run</button>
-          <button id="liveRunButton" class="wide" type="button" disabled>Start continuous AlexNet</button>
+          <button id="liveRunButton" class="wide" type="button" disabled>Start continuous model</button>
         </div>
         <p class="camera-note">Opt-in local camera mode. Frames are sent only to this local app for analysis and are not saved.</p>
       </div>
 
       <label class="toggle"><input id="fallbackToggle" type="checkbox" /> Fallback / replay mode</label>
 
-      <button id="runButton" disabled>Run AlexNet</button>
+      <div>
+        <h2>Layer image colours</h2>
+        <label for="activationColourSelect">Select activation image colours</label>
+        <select id="activationColourSelect" aria-label="Activation image colour selector">
+{activation_colour_options_html}
+        </select>
+        <p class="camera-note">This changes only the layer visualisation colours. It does not change the model result.</p>
+      </div>
+
+      <div>
+        <h2>Page colours</h2>
+        <label for="themeSelect">Select a colour theme</label>
+        <select id="themeSelect" aria-label="Colour theme selector">
+{theme_options_html}
+        </select>
+      </div>
+
+      <button id="runButton" disabled>Run selected model</button>
       <button id="resetButton" class="secondary">Reset demo</button>
     </aside>
 
     <section class="stack">
       <div class="card">
-        <h2>AlexNet layer explorer</h2>
-        <div id="status" class="message">Run AlexNet, then choose any layer. Predictions are shown by selecting the Prediction stage.</div>
+        <h2>Model layer explorer</h2>
+        <div id="status" class="message">Run a model, then choose any layer. Predictions are shown by selecting the Prediction stage.</div>
         <p id="caption" class="message">Choose any layer in the diagram, including the input.</p>
-        <div class="network" aria-label="Selectable AlexNet layer diagram">
-          <svg viewBox="0 0 1100 220" role="img">
-            <title>Selectable AlexNet path from input through all demo layers</title>
-            <line class="connector" x1="80" y1="110" x2="1050" y2="110" />
-            <rect class="layer" data-layer="Input" tabindex="0" x="20" y="48" width="90" height="124" rx="16" />
-            <rect class="layer" data-layer="Conv 1" tabindex="0" x="124" y="62" width="76" height="96" rx="14" />
-            <rect class="layer" data-layer="Pool 1" tabindex="0" x="214" y="70" width="72" height="80" rx="14" />
-            <rect class="layer" data-layer="Conv 2" tabindex="0" x="300" y="62" width="76" height="96" rx="14" />
-            <rect class="layer" data-layer="Pool 2" tabindex="0" x="390" y="70" width="72" height="80" rx="14" />
-            <rect class="layer" data-layer="Conv 3" tabindex="0" x="476" y="62" width="76" height="96" rx="14" />
-            <rect class="layer" data-layer="Conv 4" tabindex="0" x="566" y="62" width="76" height="96" rx="14" />
-            <rect class="layer" data-layer="Conv 5" tabindex="0" x="656" y="62" width="76" height="96" rx="14" />
-            <rect class="layer" data-layer="Pool 5" tabindex="0" x="746" y="70" width="72" height="80" rx="14" />
-            <rect class="layer" data-layer="Avg pool" tabindex="0" x="832" y="74" width="78" height="72" rx="14" />
-            <rect class="layer" data-layer="Classifier" tabindex="0" x="924" y="66" width="88" height="88" rx="14" />
-            <rect class="layer" data-layer="Prediction" tabindex="0" x="1026" y="68" width="54" height="84" rx="14" />
-            <text x="65" y="110">Input</text>
-            <text x="162" y="110">Conv 1</text>
-            <text x="250" y="110">Pool 1</text>
-            <text x="338" y="110">Conv 2</text>
-            <text x="426" y="110">Pool 2</text>
-            <text x="514" y="110">Conv 3</text>
-            <text x="604" y="110">Conv 4</text>
-            <text x="694" y="110">Conv 5</text>
-            <text x="782" y="110">Pool 5</text>
-            <text x="871" y="104">Avg</text>
-            <text x="871" y="122" class="stage-note">pool</text>
-            <text x="968" y="104">Classifier</text>
-            <text x="968" y="122" class="stage-note">scores</text>
-            <text x="1053" y="104">Pred</text>
-            <text x="1053" y="122" class="stage-note">iction</text>
-          </svg>
-        </div>
+        <div id="networkDiagram" class="network" aria-label="Selectable model layer diagram"></div>
         <div id="layerDetail" class="layer-detail placeholder">
-          <p class="message">Choose a curated image or start the camera, then select any AlexNet layer in the diagram.</p>
+          <p class="message">Choose a curated image or start the camera, then select any model layer in the diagram.</p>
         </div>
       </div>
     </section>
@@ -392,6 +544,10 @@ def _render_index_html() -> str:
 </main>
 
 <script>
+const MODEL_OPTIONS = {model_options_json};
+const MODEL_STORAGE_KEY = 'insideAlexNetModelKey';
+const modelSelect = document.getElementById('modelSelect');
+const modelDescription = document.getElementById('modelDescription');
 const imageSelect = document.getElementById('imageSelect');
 const runButton = document.getElementById('runButton');
 const startCameraButton = document.getElementById('startCameraButton');
@@ -399,21 +555,14 @@ const cameraRunButton = document.getElementById('cameraRunButton');
 const liveRunButton = document.getElementById('liveRunButton');
 const resetButton = document.getElementById('resetButton');
 const fallbackToggle = document.getElementById('fallbackToggle');
+const activationColourSelect = document.getElementById('activationColourSelect');
+const themeSelect = document.getElementById('themeSelect');
 const statusBox = document.getElementById('status');
 const layerDetail = document.getElementById('layerDetail');
 const caption = document.getElementById('caption');
-const DIAGRAM_LAYERS = ['Input', 'Conv 1', 'Pool 1', 'Conv 2', 'Pool 2', 'Conv 3', 'Conv 4', 'Conv 5', 'Pool 5', 'Avg pool', 'Classifier', 'Prediction'];
-const DIAGRAM_LAYER_KEYS = {{
-  'Conv 1': 'conv1',
-  'Pool 1': 'pool1',
-  'Conv 2': 'conv2',
-  'Pool 2': 'pool2',
-  'Conv 3': 'conv3',
-  'Conv 4': 'conv4',
-  'Conv 5': 'conv5',
-  'Pool 5': 'pool5',
-  'Avg pool': 'avgpool'
-}};
+const networkDiagram = document.getElementById('networkDiagram');
+const ACTIVATION_COLOUR_STORAGE_KEY = 'insideAlexNetActivationColourMap';
+const THEME_STORAGE_KEY = 'insideAlexNetColourTheme';
 let captions = {{}};
 let visualisationsByLabel = new Map();
 let currentStage = 'Input';
@@ -439,11 +588,190 @@ function setStatus(text, kind = '') {{
   statusBox.textContent = text;
 }}
 
+function selectedModel() {{
+  return MODEL_OPTIONS.find(model => model.key === modelSelect.value) || MODEL_OPTIONS[0];
+}}
+
+function selectedModelKey() {{
+  return selectedModel().key;
+}}
+
+function selectedModelLayer(stage) {{
+  return selectedModel().layers.find(layer => layer.label === stage);
+}}
+
+function selectedVisualisationKeyForStage(stage) {{
+  const layer = selectedModelLayer(stage);
+  return layer ? layer.key : undefined;
+}}
+
+function diagramStages() {{
+  return [
+    {{label: 'Input'}},
+    ...selectedModel().layers,
+    {{label: 'Classifier'}},
+    {{label: 'Prediction'}}
+  ];
+}}
+
+function diagramStageLabels() {{
+  return diagramStages().map(stage => stage.label);
+}}
+
+function selectedModelName() {{
+  return selectedModel().label;
+}}
+
+function renderModelOptions() {{
+  modelSelect.innerHTML = '';
+  MODEL_OPTIONS.forEach(model => {{
+    const option = document.createElement('option');
+    option.value = model.key;
+    option.textContent = `${{model.label}} — ${{model.short_label}}`;
+    modelSelect.appendChild(option);
+  }});
+}}
+
+function applyModelSelection(modelKey, options = {{}}) {{
+  const known = MODEL_OPTIONS.some(model => model.key === modelKey);
+  modelSelect.value = known ? modelKey : 'alexnet';
+  const model = selectedModel();
+  modelDescription.textContent = `${{model.description}} ${{model.recommendation}}`;
+  renderNetworkDiagram();
+  try {{
+    window.localStorage.setItem(MODEL_STORAGE_KEY, model.key);
+  }} catch (error) {{
+    // Local storage can be disabled; the selector still works for this page view.
+  }}
+  if (options.clear !== false) {{
+    clearResults();
+    selectStage('Input');
+  }}
+}}
+
+function initialiseModelSelection() {{
+  renderModelOptions();
+  let savedModel = '';
+  try {{
+    savedModel = window.localStorage.getItem(MODEL_STORAGE_KEY) || '';
+  }} catch (error) {{
+    savedModel = '';
+  }}
+  applyModelSelection(savedModel || 'alexnet', {{clear: false}});
+}}
+
+function splitStageLabel(label) {{
+  const parts = String(label).split(' ');
+  if (parts.length <= 1) {{
+    return [label, ''];
+  }}
+  return [parts[0], parts.slice(1).join(' ')];
+}}
+
+function renderNetworkDiagram() {{
+  const stages = diagramStages();
+  const width = 1100;
+  const height = 220;
+  const margin = 34;
+  const step = (width - margin * 2) / Math.max(1, stages.length - 1);
+  const rectWidth = Math.min(96, Math.max(56, step * 0.72));
+  const rects = stages.map((stage, index) => {{
+    const centre = margin + step * index;
+    const isInput = stage.label === 'Input';
+    const isPrediction = stage.label === 'Prediction';
+    const rectHeight = isInput ? 124 : isPrediction ? 84 : 92;
+    const y = 110 - rectHeight / 2;
+    return `<rect class="layer" data-layer="${{escapeHtml(stage.label)}}" tabindex="0" x="${{centre - rectWidth / 2}}" y="${{y}}" width="${{rectWidth}}" height="${{rectHeight}}" rx="14" />`;
+  }}).join('');
+  const texts = stages.map((stage, index) => {{
+    const centre = margin + step * index;
+    const [top, bottom] = splitStageLabel(stage.label);
+    if (!bottom) {{
+      return `<text x="${{centre}}" y="110">${{escapeHtml(top)}}</text>`;
+    }}
+    return `<text x="${{centre}}" y="104">${{escapeHtml(top)}}</text><text x="${{centre}}" y="122" class="stage-note">${{escapeHtml(bottom)}}</text>`;
+  }}).join('');
+  networkDiagram.innerHTML = `
+    <svg viewBox="0 0 ${{width}} ${{height}}" role="img">
+      <title>Selectable ${{escapeHtml(selectedModelName())}} path from input through demo layers</title>
+      <line class="connector" x1="${{margin}}" y1="110" x2="${{width - margin}}" y2="110" />
+      ${{rects}}
+      ${{texts}}
+    </svg>`;
+  attachLayerEvents();
+}}
+
+function attachLayerEvents() {{
+  document.querySelectorAll('.network .layer').forEach(layer => {{
+    layer.style.cursor = 'pointer';
+    layer.addEventListener('click', () => selectStage(layer.dataset.layer, {{scroll: true}}));
+    layer.addEventListener('keydown', event => {{
+      if (event.key === 'Enter' || event.key === ' ') {{
+        event.preventDefault();
+        selectStage(layer.dataset.layer, {{scroll: true}});
+      }}
+    }});
+  }});
+}}
+
 function clearResults() {{
   visualisationsByLabel = new Map();
   lastPredictions = [];
   renderSelectedLayerDetail();
-  setStatus('Run AlexNet, then choose any layer. Predictions are shown by selecting the Prediction stage.');
+  setStatus('Run a model, then choose any layer. Predictions are shown by selecting the Prediction stage.');
+}}
+
+function isKnownTheme(theme) {{
+  return Array.from(themeSelect.options).some(option => option.value === theme);
+}}
+
+function applyTheme(theme) {{
+  const nextTheme = isKnownTheme(theme) ? theme : 'aurora';
+  document.body.dataset.theme = nextTheme;
+  themeSelect.value = nextTheme;
+  try {{
+    window.localStorage.setItem(THEME_STORAGE_KEY, nextTheme);
+  }} catch (error) {{
+    // Local storage can be disabled; the selector still works for this page view.
+  }}
+}}
+
+function initialiseTheme() {{
+  let savedTheme = '';
+  try {{
+    savedTheme = window.localStorage.getItem(THEME_STORAGE_KEY) || '';
+  }} catch (error) {{
+    savedTheme = '';
+  }}
+  applyTheme(savedTheme || themeSelect.value || 'aurora');
+}}
+
+function isKnownActivationColourMap(colourMap) {{
+  return Array.from(activationColourSelect.options).some(option => option.value === colourMap);
+}}
+
+function applyActivationColourMapSelection(colourMap) {{
+  const nextColourMap = isKnownActivationColourMap(colourMap) ? colourMap : 'aurora';
+  activationColourSelect.value = nextColourMap;
+  try {{
+    window.localStorage.setItem(ACTIVATION_COLOUR_STORAGE_KEY, nextColourMap);
+  }} catch (error) {{
+    // Local storage can be disabled; the selector still works for this page view.
+  }}
+}}
+
+function initialiseActivationColourMap() {{
+  let savedColourMap = '';
+  try {{
+    savedColourMap = window.localStorage.getItem(ACTIVATION_COLOUR_STORAGE_KEY) || '';
+  }} catch (error) {{
+    savedColourMap = '';
+  }}
+  applyActivationColourMapSelection(savedColourMap || activationColourSelect.value || 'aurora');
+}}
+
+function selectedActivationColourMap() {{
+  return activationColourSelect.value || 'aurora';
 }}
 
 function resetDemo() {{
@@ -457,12 +785,20 @@ function resetDemo() {{
 }}
 
 function selectStage(stage, options = {{}}) {{
-  currentStage = DIAGRAM_LAYERS.includes(stage) ? stage : 'Input';
+  currentStage = diagramStageLabels().includes(stage) ? stage : 'Input';
   document.querySelectorAll('.network .layer').forEach(layer => layer.classList.toggle('active', layer.dataset.layer === currentStage));
-  caption.textContent = captions[currentStage] || 'This shows how a trained vision model responds at this stage.';
+  caption.textContent = stageCaption(currentStage);
   if (options.render !== false) {{
     renderSelectedLayerDetail({{scroll: options.scroll === true}});
   }}
+}}
+
+function stageCaption(stage) {{
+  const modelLayer = selectedModelLayer(stage);
+  if (modelLayer) {{
+    return captions[modelLayer.caption_key] || modelLayer.note || 'This shows how a trained vision model responds at this stage.';
+  }}
+  return captions[stage] || 'This shows how a trained vision model responds at this stage.';
 }}
 
 function renderSelectedLayerDetail(options = {{}}) {{
@@ -499,7 +835,7 @@ function renderInputDetail(options = {{}}) {{
       <div class="detail-copy">
         <h3>Input</h3>
         <p>${{escapeHtml(captionText)}}</p>
-        <p>This is the live local camera frame before AlexNet preprocessing. Frames are analysed in memory and are not saved.</p>
+        <p>This is the live local camera frame before model preprocessing. Frames are analysed in memory and are not saved.</p>
         <span class="detail-pill">Opt-in camera</span>
         <span class="detail-pill">Local only</span>
         <span class="detail-pill">Not saved</span>
@@ -518,7 +854,7 @@ function renderInputDetail(options = {{}}) {{
         <span class="detail-pill">224 × 224 model input after preprocessing</span>
       </div>`;
   }} else {{
-    layerDetail.innerHTML = '<p class="message">Choose a curated image or start the camera. The selected input will appear here as the first selectable AlexNet stage.</p>';
+    layerDetail.innerHTML = '<p class="message">Choose a curated image or start the camera. The selected input will appear here as the first selectable model stage.</p>';
   }}
   scrollLayerDetailIfNeeded(options);
 }}
@@ -532,10 +868,10 @@ function renderActivationDetail(item, options = {{}}) {{
     <div class="detail-copy">
       <h3>${{escapeHtml(item.label)}}</h3>
       <p>${{escapeHtml(captionText)}}</p>
-      <p>${{escapeHtml(item.note || 'Each square is one fixed channel from this layer, so the tile position stays stable across frames. Cyan, yellow, and white regions indicate stronger responses after normalising that channel for display.')}}</p>
+      <p>${{escapeHtml(item.note || 'Each square is one fixed channel from this layer, so the tile position stays stable across frames. Brighter regions indicate stronger responses after normalising that channel for display.')}}</p>
       <span class="detail-pill">${{escapeHtml(tensorShape)}}</span>
       <span class="detail-pill">Fixed channel positions</span>
-      <span class="detail-pill">Cyan/yellow/white = stronger</span>
+      <span class="detail-pill">Brighter colours = stronger</span>
       <span class="detail-pill">Normalised for display</span>
       <span class="detail-pill">Updates with each live frame</span>
     </div>`;
@@ -545,20 +881,45 @@ function renderActivationDetail(item, options = {{}}) {{
 function renderLayerPlaceholder(stage, options = {{}}) {{
   const captionText = captions[stage] || 'This shows how a trained vision model responds at this stage.';
   layerDetail.className = 'layer-detail placeholder';
-  layerDetail.innerHTML = `<p class="message"><strong>${{escapeHtml(stage)}}:</strong> ${{escapeHtml(captionText)}} Run AlexNet to show this layer from the selected input.</p>`;
+  layerDetail.innerHTML = `<p class="message"><strong>${{escapeHtml(stage)}}:</strong> ${{escapeHtml(captionText)}} Run the selected model to show this layer from the selected input.</p>`;
   scrollLayerDetailIfNeeded(options);
+}}
+
+function classifierScoresHtml() {{
+  if (!lastPredictions.length) {{
+    return '<p class="message">Run the selected model to show how classifier scores flow into likely labels.</p>';
+  }}
+  const items = lastPredictions.map(item => {{
+    const pct = Math.round(item.probability * 1000) / 10;
+    return `
+      <div class="classifier-score">
+        <strong>${{escapeHtml(item.label)}}</strong>
+        <span>${{pct}}%</span>
+        <div class="bar"><span style="width: ${{pct}}%"></span></div>
+      </div>`;
+  }}).join('');
+  return `<div class="classifier-scores" aria-label="Top classifier score bars">${{items}}</div>`;
 }}
 
 function renderClassifierDetail(options = {{}}) {{
   const captionText = captions.Classifier || 'The classifier turns compact feature values into scores for ImageNet training labels.';
   const avgPool = visualisationsByLabel.get('Avg pool');
-  const shape = avgPool ? avgPool.tensor_shape.join(' × ') : 'Run AlexNet to show incoming feature shape';
-  layerDetail.className = 'layer-detail placeholder';
+  const shape = avgPool ? avgPool.tensor_shape.join(' × ') : 'Run the selected model to show incoming feature shape';
+  layerDetail.className = 'layer-detail';
   layerDetail.innerHTML = `
+    <div class="classifier-visual" aria-label="Classifier layer visual sketch">
+      <div class="classifier-flow" aria-hidden="true">
+        <div class="classifier-block">Avg pool<small>${{escapeHtml(shape)}}</small></div>
+        <div class="classifier-block">Dense layer<small>combines features</small></div>
+        <div class="classifier-block">Dense layer<small>refines scores</small></div>
+        <div class="classifier-block">1000 labels<small>ImageNet scores</small></div>
+      </div>
+      ${{classifierScoresHtml()}}
+    </div>
     <div class="detail-copy">
       <h3>Classifier</h3>
       <p>${{escapeHtml(captionText)}}</p>
-      <p>AlexNet flattens the compact feature maps and uses fully connected layers to produce class scores. This demo shows those scores through the prediction list rather than claiming the model is certain.</p>
+      <p>The model turns compact feature values into class scores. The bars show the current top scores as a visual guide, not certainty.</p>
       <span class="detail-pill">Input: ${{escapeHtml(shape)}}</span>
       <span class="detail-pill">Fully connected layers</span>
       <span class="detail-pill">Scores, not certainty</span>
@@ -568,7 +929,7 @@ function renderClassifierDetail(options = {{}}) {{
 
 function predictionListHtml() {{
   if (!lastPredictions.length) {{
-    return '<p class="message">Run AlexNet to show the top likely ImageNet labels for this input.</p>';
+    return '<p class="message">Run the selected model to show the top likely ImageNet labels for this input.</p>';
   }}
   const items = lastPredictions.map(item => {{
     const pct = Math.round(item.probability * 1000) / 10;
@@ -595,7 +956,11 @@ function renderPredictionDetail(options = {{}}) {{
 }}
 
 function updateLiveLayerDetail() {{
-  if (currentStage === 'Input' || currentStage === 'Classifier') {{
+  if (currentStage === 'Input') {{
+    return;
+  }}
+  if (currentStage === 'Classifier') {{
+    renderClassifierDetail({{scroll: false}});
     return;
   }}
   if (currentStage === 'Prediction') {{
@@ -642,7 +1007,7 @@ function renderAnalysisResult(data, options = {{}}) {{
 
 function stopLiveRun() {{
   liveRunActive = false;
-  liveRunButton.textContent = 'Start continuous AlexNet';
+  liveRunButton.textContent = 'Start continuous model';
   liveRunButton.classList.remove('secondary');
 }}
 
@@ -700,7 +1065,7 @@ async function startCamera() {{
     cameraRunButton.disabled = false;
     liveRunButton.disabled = false;
     startCameraButton.textContent = 'Stop camera';
-    setStatus('Camera preview is local. Capture one frame or start continuous AlexNet.', 'ok');
+    setStatus('Camera preview is local. Capture one frame or start continuous model analysis.', 'ok');
   }} catch (error) {{
     setStatus(`Camera access was not available: ${{error}}`, 'error');
     stopCamera({{clearInput: true}});
@@ -760,15 +1125,17 @@ async function analyseCameraFrame({{includeVisualisations = true, live = false, 
     body: JSON.stringify({{
       image_data: imageData,
       fallback: fallbackToggle.checked,
+      model_key: selectedModelKey(),
       include_visualisations: includeVisualisations,
-      visualisation_keys: visualisationKeys
+      visualisation_keys: visualisationKeys,
+      activation_colour_map: selectedActivationColourMap()
     }})
   }});
   const data = await response.json();
   renderAnalysisResult(data, {{live}});
   if (live && data.ok) {{
     if (liveFrameIndex === 1 || liveFrameIndex % 5 === 0) {{
-      setStatus(`Continuous AlexNet is running locally. Analysed frame ${{liveFrameIndex}}.`, 'ok');
+      setStatus(`Continuous ${{selectedModelName()}} is running locally. Analysed frame ${{liveFrameIndex}}.`, 'ok');
     }}
   }}
   return data;
@@ -776,7 +1143,7 @@ async function analyseCameraFrame({{includeVisualisations = true, live = false, 
 
 async function runCameraFrame() {{
   cameraRunButton.disabled = true;
-  setStatus('Capturing one local camera frame and selected AlexNet layers…');
+  setStatus(`Capturing one local camera frame and selected ${{selectedModelName()}} layers…`);
   try {{
     await analyseCameraFrame({{includeVisualisations: true, live: false}});
   }} catch (error) {{
@@ -789,7 +1156,7 @@ async function runCameraFrame() {{
 async function liveRunLoop() {{
   if (!liveRunActive || !cameraStream) return;
   liveFrameIndex += 1;
-  const selectedVisualisationKey = DIAGRAM_LAYER_KEYS[currentStage];
+  const selectedVisualisationKey = selectedVisualisationKeyForStage(currentStage);
   try {{
     await analyseCameraFrame({{
       includeVisualisations: Boolean(selectedVisualisationKey),
@@ -797,7 +1164,7 @@ async function liveRunLoop() {{
       visualisationKeys: selectedVisualisationKey ? [selectedVisualisationKey] : []
     }});
   }} catch (error) {{
-    setStatus(`Continuous AlexNet stopped: ${{error}}`, 'error');
+    setStatus(`Continuous model analysis stopped: ${{error}}`, 'error');
     stopLiveRun();
     return;
   }}
@@ -809,18 +1176,18 @@ async function liveRunLoop() {{
 function toggleLiveRun() {{
   if (liveRunActive) {{
     stopLiveRun();
-    setStatus('Continuous AlexNet stopped. Camera preview is still local.', 'ok');
+    setStatus('Continuous model analysis stopped. Camera preview is still local.', 'ok');
     return;
   }}
   if (!cameraStream) {{
-    setStatus('Start the camera before continuous AlexNet.', 'error');
+    setStatus('Start the camera before continuous model analysis.', 'error');
     return;
   }}
   liveRunActive = true;
   liveFrameIndex = 0;
-  liveRunButton.textContent = 'Stop continuous AlexNet';
+  liveRunButton.textContent = 'Stop continuous model';
   liveRunButton.classList.add('secondary');
-  setStatus('Continuous AlexNet is starting. Predictions and the selected diagram layer update on each analysed frame.', 'ok');
+  setStatus(`Continuous ${{selectedModelName()}} is starting. Predictions and the selected diagram layer update on each analysed frame.`, 'ok');
   liveRunLoop();
 }}
 
@@ -862,18 +1229,23 @@ imageSelect.addEventListener('change', () => {{
   }}
   inputState = {{kind: 'image', url: selected.dataset.url, label: selected.textContent}};
   selectStage('Input');
-  setStatus('Input image ready. Run AlexNet, then use the diagram to inspect every layer.', 'ok');
+  setStatus(`Input image ready. Run ${{selectedModelName()}}, then use the diagram to inspect every layer.`, 'ok');
 }});
 
 runButton.addEventListener('click', async () => {{
   if (!imageSelect.value) return;
   runButton.disabled = true;
-  setStatus('Running AlexNet locally and capturing selectable layer responses…');
+  setStatus(`Running ${{selectedModelName()}} locally and capturing selectable layer responses…`);
   try {{
     const response = await fetch('/api/run', {{
       method: 'POST',
       headers: {{'Content-Type': 'application/json'}},
-      body: JSON.stringify({{image_name: imageSelect.value, fallback: fallbackToggle.checked}})
+      body: JSON.stringify({{
+        image_name: imageSelect.value,
+        fallback: fallbackToggle.checked,
+        model_key: selectedModelKey(),
+        activation_colour_map: selectedActivationColourMap()
+      }})
     }});
     const data = await response.json();
     renderAnalysisResult(data);
@@ -888,17 +1260,23 @@ startCameraButton.addEventListener('click', startCamera);
 cameraRunButton.addEventListener('click', runCameraFrame);
 liveRunButton.addEventListener('click', toggleLiveRun);
 resetButton.addEventListener('click', resetDemo);
-document.querySelectorAll('.network .layer').forEach(layer => {{
-  layer.style.cursor = 'pointer';
-  layer.addEventListener('click', () => selectStage(layer.dataset.layer, {{scroll: true}}));
-  layer.addEventListener('keydown', event => {{
-    if (event.key === 'Enter' || event.key === ' ') {{
-      event.preventDefault();
-      selectStage(layer.dataset.layer, {{scroll: true}});
-    }}
-  }});
+modelSelect.addEventListener('change', () => {{
+  stopLiveRun();
+  applyModelSelection(modelSelect.value);
 }});
+activationColourSelect.addEventListener('change', () => {{
+  applyActivationColourMapSelection(activationColourSelect.value);
+  if (!liveRunActive) {{
+    visualisationsByLabel = new Map();
+    renderSelectedLayerDetail();
+    setStatus('Layer image colours set. Run the selected model again to redraw the layer images with this palette.', 'ok');
+  }}
+}});
+themeSelect.addEventListener('change', () => applyTheme(themeSelect.value));
 
+initialiseModelSelection();
+initialiseActivationColourMap();
+initialiseTheme();
 loadCaptions();
 loadImages();
 </script>

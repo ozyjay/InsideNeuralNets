@@ -1,4 +1,4 @@
-"""Image preprocessing helpers for AlexNet inference."""
+"""Image preprocessing helpers for ImageNet-style inference."""
 
 from __future__ import annotations
 
@@ -17,9 +17,9 @@ def ensure_rgb(image: Image.Image) -> Image.Image:
 
 
 def preprocess_for_alexnet(image: Image.Image) -> torch.Tensor:
-    """Convert a PIL image to a normalised AlexNet batch tensor.
+    """Convert a PIL image to a normalised ImageNet-style batch tensor.
 
-    The output shape is `(1, 3, 224, 224)` and matches ImageNet-style AlexNet
+    The output shape is `(1, 3, 224, 224)` and matches ImageNet-style model
     preprocessing used by torchvision.
     """
     pipeline = transforms.Compose(

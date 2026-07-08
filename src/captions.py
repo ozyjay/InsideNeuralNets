@@ -1,4 +1,4 @@
-"""Editable public captions for demo stages and AlexNet layers."""
+"""Editable public captions for demo stages and model layers."""
 
 from __future__ import annotations
 
@@ -13,6 +13,10 @@ CAPTIONS: dict[str, str] = {
     "Conv 5": "The fifth convolution produces deeper feature maps that feed the final classifier pathway.",
     "Pool 5": "The final pooling layer compresses the deepest feature maps into a compact spatial summary.",
     "Avg pool": "Adaptive average pooling shapes the final feature maps into the fixed size expected by the classifier.",
+    "Early features": "Early model layers often respond to simple patterns such as edges, colour changes, and corners.",
+    "Pooling": "Pooling keeps strong nearby responses while reducing the spatial size.",
+    "Mid features": "Middle layers combine simple patterns into richer textures, curves, and repeated shapes.",
+    "Deep features": "Deeper layers build more specialised combinations of visual features useful for classification.",
     "Classifier": "The classifier turns the compact feature values into scores for ImageNet training labels.",
     "Prediction": "The final prediction is a likely class from the model’s training labels. It can be wrong.",
 }

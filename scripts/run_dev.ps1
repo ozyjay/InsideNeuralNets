@@ -46,5 +46,5 @@ if (Test-Path -Path $VenvUvicorn -PathType Leaf) {
     $UvicornBin = "uvicorn"
 }
 
-& $UvicornBin app:app --host $HostName --port $Port
+& $UvicornBin app:app --host $HostName --port $Port --log-level warning --no-access-log
 exit $LASTEXITCODE
