@@ -167,7 +167,7 @@ The reset button clears the current image selection, stops any active camera pre
 
 Fallback/replay mode is shown in the UI now, but full fallback asset playback is part of a later build phase. Live AlexNet prediction failures are displayed as public setup messages rather than app crashes.
 
-Live mode currently shows fixed-channel feature-map grids for early, middle, and deep AlexNet convolution layers. Each tile position represents the same channel across frames, and each channel is normalised for display so visitors can see response patterns clearly.
+Live mode currently shows fixed-channel feature-map grids for early, middle, and deep AlexNet convolution layers. Each tile position represents the same channel across frames, and each channel is normalised for display. Dark navy/purple means quieter response; cyan, yellow, and white mean stronger response.
 
 ## Public booth script
 

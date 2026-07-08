@@ -43,7 +43,7 @@ def activation_grid_png_base64(
     rows = ceil(channel_count / columns)
     grid_width = columns * tile_size + (columns + 1) * gap
     grid_height = rows * tile_size + (rows + 1) * gap
-    grid = Image.new("RGB", (grid_width, grid_height), color=(3, 4, 18))
+    grid = Image.new("RGB", (grid_width, grid_height), color=(4, 6, 22))
 
     for idx, feature_map in enumerate(selected):
         row, col = divmod(idx, columns)
@@ -82,33 +82,43 @@ def select_fixed_channels(maps: torch.Tensor, *, max_channels: int) -> torch.Ten
 def _render_feature_tile(feature_map: np.ndarray, *, tile_size: int) -> Image.Image:
     """Convert one feature map to a vivid coloured tile."""
     feature_map = feature_map.astype(np.float32)
-    low = float(np.percentile(feature_map, 2))
-    high = float(np.percentile(feature_map, 99))
+    low = float(np.percentile(feature_map, 1))
+    high = float(np.percentile(feature_map, 99.7))
     if high > low:
         normalised = np.clip((feature_map - low) / (high - low), 0.0, 1.0)
     else:
         normalised = np.zeros_like(feature_map, dtype=np.float32)
 
-    coloured = _purple_viridis(normalised)
+    coloured = apply_activation_colour_map(normalised)
     tile = Image.fromarray(coloured, mode="RGB")
     return tile.resize((tile_size, tile_size), resample=Image.Resampling.BILINEAR)
 
 
-def _purple_viridis(values: np.ndarray) -> np.ndarray:
-    """Apply a high-contrast booth-friendly colour map without pyplot state."""
-    # Dark blue/purple low responses, then cyan and warm yellow high responses.
+def apply_activation_colour_map(values: np.ndarray) -> np.ndarray:
+    """Apply a high-contrast booth-friendly activation colour map.
+
+    The palette keeps low responses close to dark navy so quieter regions do
+    not distract, then moves through purple, blue, cyan, yellow, and warm white
+    for stronger responses. It is intentionally vivid for a large public
+    display while remaining deterministic and dependency-free.
+    """
     anchors = np.array(
         [
-            [8, 5, 38],
-            [52, 16, 105],
-            [126, 34, 206],
+            [2, 6, 23],
+            [24, 18, 77],
+            [80, 31, 140],
+            [37, 99, 235],
             [14, 165, 233],
-            [34, 211, 238],
+            [45, 212, 191],
             [250, 204, 21],
+            [255, 247, 237],
         ],
         dtype=np.float32,
     )
-    values = np.clip(values, 0.0, 1.0) ** 0.78
+    values = np.clip(values, 0.0, 1.0)
+    # Slight gamma lift makes meaningful responses pop without washing out the
+    # dark background.
+    values = values**0.62
     scaled = values * (len(anchors) - 1)
     lower = np.floor(scaled).astype(np.int32)
     upper = np.clip(lower + 1, 0, len(anchors) - 1)

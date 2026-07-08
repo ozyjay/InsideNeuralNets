@@ -458,9 +458,10 @@ function showLayerDetail(item, options = {{}}) {{
     <div class="detail-copy">
       <h3>${{item.label}}</h3>
       <p>${{captionText}}</p>
-      <p>${{item.note || 'Each square is one fixed channel from this layer, so the tile position stays stable across frames. Brighter regions indicate stronger responses after normalising that channel for display.'}}</p>
+      <p>${{item.note || 'Each square is one fixed channel from this layer, so the tile position stays stable across frames. Cyan, yellow, and white regions indicate stronger responses after normalising that channel for display.'}}</p>
       <span class="detail-pill">${{item.tensor_shape.join(' × ')}}</span>
       <span class="detail-pill">Fixed channel positions</span>
+      <span class="detail-pill">Cyan/yellow/white = stronger</span>
       <span class="detail-pill">Normalised for display</span>
       <span class="detail-pill">Updates with each live frame</span>
     </div>`;
