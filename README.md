@@ -99,7 +99,7 @@ Camera mode was added as an explicit opt-in booth feature.
 - The preview stays in the local browser.
 - Press **Capture + run** to send one still frame to the local FastAPI app.
 - Press **Start continuous AlexNet** to repeatedly analyse the latest camera frame while the button is active.
-- Continuous mode runs one local AlexNet request at a time and updates predictions plus the selected detailed feature-map view as fast as the model completes frames.
+- Continuous mode runs one local AlexNet request at a time and updates predictions plus the selected detailed feature-map view as fast as the model completes frames. Feature-map tile positions are fixed so the mini images do not swap places between frames.
 - Frames are analysed in memory and are not written to disk.
 - Do not use camera mode for visitors who do not consent.
 
@@ -167,7 +167,7 @@ The reset button clears the current image selection, stops any active camera pre
 
 Fallback/replay mode is shown in the UI now, but full fallback asset playback is part of a later build phase. Live AlexNet prediction failures are displayed as public setup messages rather than app crashes.
 
-Live mode currently shows selected feature-map grids for early, middle, and deep AlexNet convolution layers. Each tile is one selected channel, normalised for display so visitors can see response patterns clearly.
+Live mode currently shows fixed-channel feature-map grids for early, middle, and deep AlexNet convolution layers. Each tile position represents the same channel across frames, and each channel is normalised for display so visitors can see response patterns clearly.
 
 ## Public booth script
 

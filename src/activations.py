@@ -25,7 +25,7 @@ SELECTED_LAYER_SPECS: tuple[LayerSpec, ...] = (
         label="Early layer",
         module_path="features.1",
         caption_key="Early layer",
-        public_note="First convolution response after ReLU, shown as selected feature-map channels.",
+        public_note="First convolution response after ReLU, shown as fixed feature-map channels so grid positions stay stable.",
     ),
     LayerSpec(
         key="middle",

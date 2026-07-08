@@ -24,10 +24,12 @@ def activation_grid_png_base64(
     tile_size: int = 56,
     gap: int = 4,
 ) -> str:
-    """Render selected activation channels as a vivid feature-map grid.
+    """Render fixed activation channels as a vivid feature-map grid.
 
-    Each channel is normalised independently so visitors can see spatial
-    response patterns. The result is a PNG data URI suitable for a local web UI.
+    Grid positions are stable across frames: tile 1 is always the same channel,
+    tile 2 is always the same channel, and so on. Each channel is normalised
+    independently so visitors can see spatial response patterns. The result is
+    a PNG data URI suitable for a local web UI.
     """
     if activation.ndim != 4:
         raise ValueError("Expected activation tensor with shape (batch, channels, height, width).")
@@ -36,7 +38,7 @@ def activation_grid_png_base64(
     if maps.numel() == 0:
         raise ValueError("Activation tensor is empty.")
 
-    selected = _select_informative_channels(maps, max_channels=max_channels)
+    selected = select_fixed_channels(maps, max_channels=max_channels)
     channel_count = selected.shape[0]
     rows = ceil(channel_count / columns)
     grid_width = columns * tile_size + (columns + 1) * gap
@@ -56,17 +58,29 @@ def activation_grid_png_base64(
     return f"data:image/png;base64,{encoded}"
 
 
-def _select_informative_channels(maps: torch.Tensor, *, max_channels: int) -> torch.Tensor:
-    """Pick channels with the strongest average absolute response."""
-    channel_count = maps.shape[0]
+def fixed_channel_indices(channel_count: int, *, max_channels: int) -> list[int]:
+    """Return stable channel indices for a layer.
+
+    The first `max_channels` channels are used intentionally. This makes the
+    grid steady in live camera mode because each tile position represents the
+    same AlexNet channel on every frame.
+    """
+    if channel_count < 1:
+        return []
     keep = min(max_channels, channel_count)
-    scores = maps.abs().flatten(1).mean(dim=1)
-    indices = torch.topk(scores, k=keep).indices
+    return list(range(keep))
+
+
+def select_fixed_channels(maps: torch.Tensor, *, max_channels: int) -> torch.Tensor:
+    """Pick a stable set of channels instead of re-ranking them per frame."""
+    indices = fixed_channel_indices(maps.shape[0], max_channels=max_channels)
+    if not indices:
+        return maps[:0]
     return maps[indices]
 
 
 def _render_feature_tile(feature_map: np.ndarray, *, tile_size: int) -> Image.Image:
-    """Convert one feature map to a viridis-coloured tile."""
+    """Convert one feature map to a vivid coloured tile."""
     feature_map = feature_map.astype(np.float32)
     low = float(np.percentile(feature_map, 2))
     high = float(np.percentile(feature_map, 99))

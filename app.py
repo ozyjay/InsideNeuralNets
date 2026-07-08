@@ -451,16 +451,16 @@ function showLayerDetail(item, options = {{}}) {{
   selectedDetailLabel = item.label;
   selectStage(item.label);
   document.querySelectorAll('.feature-card').forEach(card => card.classList.toggle('active', card.dataset.layer === item.label));
-  const captionText = captions[item.caption_key] || item.note || 'This shows selected channels from this layer response.';
+  const captionText = captions[item.caption_key] || item.note || 'This shows fixed channels from this layer response.';
   layerDetail.className = 'layer-detail';
   layerDetail.innerHTML = `
     <img src="${{item.image_data}}" alt="Large ${{item.label}} activation grid" />
     <div class="detail-copy">
       <h3>${{item.label}}</h3>
       <p>${{captionText}}</p>
-      <p>${{item.note || 'Each square is one selected channel from this layer. Brighter regions indicate stronger responses after normalising that channel for display.'}}</p>
+      <p>${{item.note || 'Each square is one fixed channel from this layer, so the tile position stays stable across frames. Brighter regions indicate stronger responses after normalising that channel for display.'}}</p>
       <span class="detail-pill">${{item.tensor_shape.join(' × ')}}</span>
-      <span class="detail-pill">Selected channels</span>
+      <span class="detail-pill">Fixed channel positions</span>
       <span class="detail-pill">Normalised for display</span>
       <span class="detail-pill">Updates with each live frame</span>
     </div>`;
