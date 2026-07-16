@@ -78,6 +78,12 @@ def test_index_html_includes_model_selector() -> None:
     assert {model["key"] for model in models["models"]} == {"alexnet", "resnet50", "mobilenet_v3_large"}
 
 
+def test_health_endpoint_reports_booth_server_readiness() -> None:
+    health = demo_app.get_health()
+
+    assert health == {"ok": True, "service": "InsideNeuralNets", "version": "0.2.0"}
+
+
 def test_index_html_includes_activation_colour_selector() -> None:
     html = demo_app.index()
 

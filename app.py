@@ -196,6 +196,12 @@ def get_models() -> dict[str, object]:
     return {"models": list(supported_model_options()), "default": "alexnet"}
 
 
+@app.get("/api/health")
+def get_health() -> dict[str, object]:
+    """Report that the local booth server is ready to serve the UI."""
+    return {"ok": True, "service": APP_TITLE, "version": app.version}
+
+
 @app.post("/api/run")
 def run_demo(request: RunRequest) -> JSONResponse:
     """Run live inference for a curated image.

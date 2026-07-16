@@ -162,6 +162,32 @@ FRONTEND_PORT=3450
 
 Do not use random fallback ports for Open Day mode.
 
+## Booth mode
+
+For Open Day, start the local server and a dedicated fullscreen Chromium window with one command:
+
+```bash
+.venv/bin/python scripts/run_booth.py
+```
+
+For a windowed rehearsal that is easier to exit and inspect:
+
+```bash
+.venv/bin/python scripts/run_booth.py --windowed
+```
+
+Booth mode:
+
+- stops an earlier server for this project on the configured port;
+- starts FastAPI and waits for `/api/health` before opening the UI;
+- opens Chromium, Chrome, or Edge in fullscreen kiosk mode;
+- uses a dedicated `.booth-browser-profile` so camera permission does not mix with a personal browser profile;
+- stops the local server when the booth browser closes.
+
+Set `BOOTH_BROWSER` to an executable name or path if automatic browser discovery does not find the intended browser. The existing `FRONTEND_HOST` and `FRONTEND_PORT` settings are also honoured.
+
+On the first rehearsal, grant camera permission and confirm that both USB webcams appear under **Select a camera**. Browser preferences are retained locally in the ignored booth profile, but captured frames are not saved.
+
 ## Reset and fallback behaviour
 
 The reset button clears the current image selection, stops any active camera preview and continuous run loop, clears results, and returns the app to the default instruction screen.
@@ -216,6 +242,9 @@ The app fails gracefully if pretrained weights for the selected model are unavai
 
 - [ ] Curated booth-safe images added to `assets/demo_images/`.
 - [ ] App starts on `127.0.0.1:3450`.
+- [ ] Booth mode opens fullscreen and returns cleanly after the browser closes.
+- [ ] Both USB webcams appear by name and can be selected after camera permission is granted.
+- [ ] Unplugging and reconnecting each webcam refreshes the camera selector.
 - [ ] Reset button returns to the default instruction screen.
 - [ ] No visitor upload or visitor data storage is present.
 - [ ] Camera mode is used only with explicit visitor consent.
