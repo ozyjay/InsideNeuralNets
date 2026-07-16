@@ -513,6 +513,10 @@ def _render_index_html() -> str:
 
       <div>
         <h2>Live camera</h2>
+        <label for="cameraSelect">Select a camera</label>
+        <select id="cameraSelect" aria-label="Webcam selector" disabled>
+          <option value="">Checking for cameras…</option>
+        </select>
         <div class="camera-actions">
           <button id="startCameraButton" class="secondary" type="button">Start camera</button>
           <button id="cameraRunButton" type="button" disabled>Capture + run</button>
@@ -566,6 +570,7 @@ const modelSelect = document.getElementById('modelSelect');
 const modelDescription = document.getElementById('modelDescription');
 const imageSelect = document.getElementById('imageSelect');
 const runButton = document.getElementById('runButton');
+const cameraSelect = document.getElementById('cameraSelect');
 const startCameraButton = document.getElementById('startCameraButton');
 const cameraRunButton = document.getElementById('cameraRunButton');
 const liveRunButton = document.getElementById('liveRunButton');
@@ -865,6 +870,7 @@ function selectedActivationColourMap() {{
 
 function resetDemo() {{
   stopCamera({{clearInput: true}});
+  if (cameraSelect.options.length) cameraSelect.selectedIndex = 0;
   imageSelect.value = '';
   inputState = {{kind: 'empty'}};
   fallbackToggle.checked = false;
@@ -1121,6 +1127,76 @@ function stopCamera(options = {{}}) {{
   }}
 }}
 
+async function refreshCameraDevices(preferredDeviceId = '') {{
+  if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) {{
+    cameraSelect.innerHTML = '<option value="">Camera selection is not supported</option>';
+    cameraSelect.disabled = true;
+    return;
+  }}
+  try {{
+    const devices = (await navigator.mediaDevices.enumerateDevices())
+      .filter(device => device.kind === 'videoinput');
+    const selectedDeviceId = preferredDeviceId || cameraSelect.value;
+    cameraSelect.innerHTML = '';
+    if (!devices.length) {{
+      cameraSelect.innerHTML = '<option value="">No cameras found</option>';
+      cameraSelect.disabled = true;
+      return;
+    }}
+    devices.forEach((device, index) => {{
+      const option = document.createElement('option');
+      option.value = device.deviceId;
+      option.textContent = device.label || `Camera ${{index + 1}}`;
+      cameraSelect.appendChild(option);
+    }});
+    cameraSelect.disabled = false;
+    if (Array.from(cameraSelect.options).some(option => option.value === selectedDeviceId)) {{
+      cameraSelect.value = selectedDeviceId;
+    }}
+  }} catch (error) {{
+    cameraSelect.innerHTML = '<option value="">Could not list cameras</option>';
+    cameraSelect.disabled = true;
+  }}
+}}
+
+async function openCamera(deviceId = '') {{
+  const videoConstraints = {{width: {{ideal: 960}}, height: {{ideal: 720}}}};
+  if (deviceId) {{
+    videoConstraints.deviceId = {{exact: deviceId}};
+  }} else {{
+    videoConstraints.facingMode = 'user';
+  }}
+  const nextStream = await navigator.mediaDevices.getUserMedia({{video: videoConstraints, audio: false}});
+  const nextVideo = document.createElement('video');
+  nextVideo.autoplay = true;
+  nextVideo.playsInline = true;
+  nextVideo.muted = true;
+  nextVideo.className = 'camera-capture-source';
+  nextVideo.setAttribute('aria-hidden', 'true');
+  nextVideo.tabIndex = -1;
+  nextVideo.srcObject = nextStream;
+  document.body.appendChild(nextVideo);
+  try {{
+    await waitForCameraReady(nextVideo);
+  }} catch (error) {{
+    nextStream.getTracks().forEach(track => track.stop());
+    nextVideo.remove();
+    throw error;
+  }}
+
+  const previousStream = cameraStream;
+  const previousVideo = cameraVideo;
+  cameraStream = nextStream;
+  cameraVideo = nextVideo;
+  if (previousStream) previousStream.getTracks().forEach(track => track.stop());
+  if (previousVideo) {{
+    previousVideo.srcObject = null;
+    previousVideo.remove();
+  }}
+  const activeDeviceId = nextStream.getVideoTracks()[0]?.getSettings().deviceId || deviceId;
+  await refreshCameraDevices(activeDeviceId);
+}}
+
 async function startCamera() {{
   if (cameraStream) {{
     stopCamera({{clearInput: true}});
@@ -1137,19 +1213,9 @@ async function startCamera() {{
   inputState = {{kind: 'empty'}};
   runButton.disabled = true;
   try {{
-    cameraStream = await navigator.mediaDevices.getUserMedia({{video: {{width: {{ideal: 960}}, height: {{ideal: 720}}, facingMode: 'user'}}, audio: false}});
-    cameraVideo = document.createElement('video');
-    cameraVideo.autoplay = true;
-    cameraVideo.playsInline = true;
-    cameraVideo.muted = true;
-    cameraVideo.className = 'camera-capture-source';
-    cameraVideo.setAttribute('aria-hidden', 'true');
-    cameraVideo.tabIndex = -1;
-    cameraVideo.srcObject = cameraStream;
-    document.body.appendChild(cameraVideo);
+    await openCamera(cameraSelect.value);
     inputState = {{kind: 'camera'}};
     selectStage('Input');
-    await waitForCameraReady();
     cameraRunButton.disabled = false;
     liveRunButton.disabled = false;
     startCameraButton.textContent = 'Stop camera';
@@ -1160,9 +1226,9 @@ async function startCamera() {{
   }}
 }}
 
-function waitForCameraReady() {{
+function waitForCameraReady(video = cameraVideo) {{
   return new Promise((resolve, reject) => {{
-    if (!cameraVideo) {{
+    if (!video) {{
       reject(new Error('Camera preview was not created.'));
       return;
     }}
@@ -1176,14 +1242,14 @@ function waitForCameraReady() {{
     }};
     const cleanup = () => {{
       window.clearTimeout(timeout);
-      cameraVideo.removeEventListener('loadedmetadata', done);
-      cameraVideo.removeEventListener('canplay', done);
+      video.removeEventListener('loadedmetadata', done);
+      video.removeEventListener('canplay', done);
     }};
     const timeout = window.setTimeout(fail, 4000);
-    cameraVideo.addEventListener('loadedmetadata', done, {{once: true}});
-    cameraVideo.addEventListener('canplay', done, {{once: true}});
-    cameraVideo.play().catch(() => {{}});
-    if (cameraVideo.videoWidth && cameraVideo.videoHeight) {{
+    video.addEventListener('loadedmetadata', done, {{once: true}});
+    video.addEventListener('canplay', done, {{once: true}});
+    video.play().catch(() => {{}});
+    if (video.videoWidth && video.videoHeight) {{
       done();
     }}
   }});
@@ -1345,6 +1411,24 @@ runButton.addEventListener('click', async () => {{
 }});
 
 startCameraButton.addEventListener('click', startCamera);
+cameraSelect.addEventListener('change', async () => {{
+  if (!cameraStream) return;
+  stopLiveRun();
+  cameraSelect.disabled = true;
+  try {{
+    await openCamera(cameraSelect.value);
+    clearResults();
+    inputState = {{kind: 'camera'}};
+    selectStage('Input');
+    setStatus('Camera changed. The preview remains local and frames are not saved.', 'ok');
+  }} catch (error) {{
+    setStatus(`The selected camera was not available: ${{error}}`, 'error');
+    const activeDeviceId = cameraStream?.getVideoTracks()[0]?.getSettings().deviceId || '';
+    await refreshCameraDevices(activeDeviceId);
+  }} finally {{
+    cameraSelect.disabled = false;
+  }}
+}});
 cameraRunButton.addEventListener('click', runCameraFrame);
 liveRunButton.addEventListener('click', toggleLiveRun);
 resetButton.addEventListener('click', resetDemo);
@@ -1365,6 +1449,10 @@ themeSelect.addEventListener('change', () => applyTheme(themeSelect.value));
 initialiseModelSelection();
 initialiseActivationColourMap();
 initialiseTheme();
+refreshCameraDevices();
+if (navigator.mediaDevices?.addEventListener) {{
+  navigator.mediaDevices.addEventListener('devicechange', () => refreshCameraDevices());
+}}
 loadCaptions();
 loadImages();
 </script>

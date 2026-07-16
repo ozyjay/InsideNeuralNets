@@ -129,6 +129,17 @@ def test_index_html_includes_local_camera_privacy_wording() -> None:
     assert "Live local camera input" in html
 
 
+def test_index_html_supports_selecting_between_webcams() -> None:
+    html = demo_app.index()
+
+    assert 'id="cameraSelect"' in html
+    assert "Webcam selector" in html
+    assert "enumerateDevices()" in html
+    assert "device.kind === 'videoinput'" in html
+    assert "videoConstraints.deviceId = {exact: deviceId}" in html
+    assert "navigator.mediaDevices.addEventListener('devicechange'" in html
+
+
 def test_decode_camera_image_accepts_data_url() -> None:
     image = Image.new("RGB", (8, 6), color=(10, 20, 30))
     buffer = BytesIO()

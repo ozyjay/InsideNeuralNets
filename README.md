@@ -95,6 +95,8 @@ The MVP intentionally does not include visitor photo upload. Optional camera mod
 Camera mode was added as an explicit opt-in booth feature.
 
 - The browser asks for camera permission.
+- If more than one webcam is connected, use **Select a camera** to choose it. Camera names may appear as generic labels until browser permission has been granted.
+- You can change the selected webcam while camera mode is running; continuous analysis stops during the change and can then be restarted.
 - The input preview stays in the local browser and appears as the diagram’s **Input** layer.
 - Press **Capture + run** to send one still frame to the local FastAPI app.
 - Press **Start continuous model** to repeatedly analyse the latest camera frame while the button is active.
