@@ -35,6 +35,16 @@ def test_powershell_setup_uses_the_platform_virtual_environment_python() -> None
     assert "Get-Command python3, python, py" in script
 
 
+def test_installer_runs_setup_and_prepares_offline_model_weights() -> None:
+    script = Path("scripts/install.ps1").read_text(encoding="utf-8")
+
+    assert '& $SetupScript @SetupArguments' in script
+    assert "scripts/cache_models.py" in script
+    assert "[switch]$SkipModelWeights" in script
+    assert "scripts/run_booth.ps1 -Windowed" in script
+    assert "scripts/run_booth.ps1" in script
+
+
 def test_run_booth_powershell_supports_fullscreen_and_windowed_modes() -> None:
     script = Path("scripts/run_booth.ps1").read_text(encoding="utf-8")
 

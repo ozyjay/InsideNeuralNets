@@ -22,6 +22,11 @@ $VenvPython = if ($IsWindows) {
 } else {
     Join-Path $VenvDir "bin/python"
 }
+$ActivateScript = if ($IsWindows) {
+    ".venv/Scripts/Activate.ps1"
+} else {
+    ".venv/bin/Activate.ps1"
+}
 
 Set-Location $ProjectRoot
 
@@ -81,7 +86,7 @@ Write-Host ""
 Write-Host "Setup complete."
 Write-Host ""
 Write-Host "Activate the environment with:"
-Write-Host "  . .venv/bin/Activate.ps1"
+Write-Host "  . $ActivateScript"
 Write-Host ""
 Write-Host "Run the demo with:"
 Write-Host "  pwsh -NoProfile -File scripts/run_dev.ps1"

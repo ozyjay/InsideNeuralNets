@@ -29,48 +29,41 @@ Avoid phrases such as:
 - “This shows the model’s private reasoning”
 - “The AI is always correct”
 
-## Setup
+## Install
 
 Use Python 3.11 or newer.
 
-Recommended setup uses the project script so packages are installed into the
-local `.venv`, not global Python:
+Run the one-command installer from the project directory:
 
-```bash
-bash scripts/setup.sh
+```powershell
+pwsh -NoProfile -File scripts/install.ps1
 ```
 
-PowerShell:
+The installer:
+
+- creates or reuses the project-local `.venv`;
+- upgrades pip and installs the Python requirements into that environment;
+- runs the local setup check;
+- downloads and validates AlexNet, ResNet-50, and MobileNetV3 Large weights so
+  the booth can run offline.
+
+An internet connection is required for the first complete installation. To
+install dependencies without downloading model weights:
+
+```powershell
+pwsh -NoProfile -File scripts/install.ps1 -SkipModelWeights
+```
+
+For dependency setup only, use:
 
 ```powershell
 pwsh -NoProfile -File scripts/setup.ps1
 ```
 
-Then activate the environment:
+Model weights can be prepared separately with:
 
 ```bash
-source .venv/bin/activate
-```
-
-PowerShell:
-
-```powershell
-. .venv/bin/Activate.ps1
-```
-
-Manual setup is also possible:
-
-```bash
-python -m venv .venv
-source .venv/bin/activate
-python -m pip install --upgrade pip
-python -m pip install -r requirements.txt
-```
-
-You can run a local setup check with:
-
-```bash
-python scripts/check_setup.py
+.venv/bin/python scripts/cache_models.py
 ```
 
 ## Add curated images
