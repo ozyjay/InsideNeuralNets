@@ -27,11 +27,21 @@ if (Test-Path -Path $EnvPath -PathType Leaf) {
 $HostName = if ($env:FRONTEND_HOST) { $env:FRONTEND_HOST } else { "127.0.0.1" }
 $Port = if ($env:FRONTEND_PORT) { $env:FRONTEND_PORT } else { "3450" }
 
-$VenvPython = Join-Path $ProjectRoot ".venv/bin/python"
-if (Test-Path -Path $VenvPython -PathType Leaf) {
-    $PythonBin = $VenvPython
-} else {
-    $PythonBin = "python3"
+$VenvPythonCandidates = @(
+    (Join-Path $ProjectRoot ".venv/Scripts/python.exe"),
+    (Join-Path $ProjectRoot ".venv/bin/python")
+)
+$PythonBin = $VenvPythonCandidates |
+    Where-Object { Test-Path -Path $_ -PathType Leaf } |
+    Select-Object -First 1
+
+if (-not $PythonBin) {
+    $PythonCommand = Get-Command python3, python, py -ErrorAction SilentlyContinue |
+        Select-Object -First 1
+    if (-not $PythonCommand) {
+        throw "Python was not found. Run scripts/setup.ps1 first or add Python to PATH."
+    }
+    $PythonBin = $PythonCommand.Source
 }
 
 & $PythonBin scripts/stop_dev.py --host $HostName --port $Port --project-root $ProjectRoot

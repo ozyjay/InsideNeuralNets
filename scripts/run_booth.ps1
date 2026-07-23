@@ -1,31 +1,17 @@
 [CmdletBinding()]
-param()
+param(
+    [switch]$Windowed,
+    [string]$Browser,
+    [string]$ListenHost,
+    [ValidateRange(1, 65535)]
+    [int]$Port
+)
 
 $ErrorActionPreference = "Stop"
 
 $ScriptDir = Split-Path -Parent $PSCommandPath
 $ProjectRoot = Resolve-Path (Join-Path $ScriptDir "..")
 Set-Location $ProjectRoot
-
-$EnvPath = Join-Path $ProjectRoot ".env"
-if (Test-Path -Path $EnvPath -PathType Leaf) {
-    Get-Content $EnvPath | ForEach-Object {
-        $Line = $_.Trim()
-        if (-not $Line -or $Line.StartsWith("#") -or -not $Line.Contains("=")) {
-            return
-        }
-
-        $Parts = $Line.Split("=", 2)
-        $Name = $Parts[0].Trim()
-        $Value = $Parts[1].Trim().Trim('"').Trim("'")
-        if ($Name) {
-            Set-Item -Path "Env:$Name" -Value $Value
-        }
-    }
-}
-
-$HostName = if ($env:FRONTEND_HOST) { $env:FRONTEND_HOST } else { "127.0.0.1" }
-$Port = if ($env:FRONTEND_PORT) { $env:FRONTEND_PORT } else { "3450" }
 
 $VenvPythonCandidates = @(
     (Join-Path $ProjectRoot ".venv/Scripts/python.exe"),
@@ -44,5 +30,19 @@ if (-not $PythonBin) {
     $PythonBin = $PythonCommand.Source
 }
 
-& $PythonBin scripts/stop_dev.py --host $HostName --port $Port --project-root $ProjectRoot
+$BoothArguments = @("scripts/run_booth.py")
+if ($Windowed) {
+    $BoothArguments += "--windowed"
+}
+if ($Browser) {
+    $BoothArguments += @("--browser", $Browser)
+}
+if ($ListenHost) {
+    $BoothArguments += @("--host", $ListenHost)
+}
+if ($PSBoundParameters.ContainsKey("Port")) {
+    $BoothArguments += @("--port", $Port)
+}
+
+& $PythonBin @BoothArguments
 exit $LASTEXITCODE

@@ -1,14 +1,27 @@
 [CmdletBinding()]
 param(
-    [string]$PythonBin = $(if ($env:PYTHON_BIN) { $env:PYTHON_BIN } else { "python3" })
+    [string]$PythonBin = $env:PYTHON_BIN
 )
 
 $ErrorActionPreference = "Stop"
 
+if (-not $PythonBin) {
+    $PythonCommand = Get-Command python3, python, py -ErrorAction SilentlyContinue |
+        Select-Object -First 1
+    if (-not $PythonCommand) {
+        throw "Python was not found. Install Python or add it to PATH."
+    }
+    $PythonBin = $PythonCommand.Source
+}
+
 $ScriptDir = Split-Path -Parent $PSCommandPath
 $ProjectRoot = Resolve-Path (Join-Path $ScriptDir "..")
 $VenvDir = Join-Path $ProjectRoot ".venv"
-$VenvPython = Join-Path $VenvDir "bin/python"
+$VenvPython = if ($IsWindows) {
+    Join-Path $VenvDir "Scripts/python.exe"
+} else {
+    Join-Path $VenvDir "bin/python"
+}
 
 Set-Location $ProjectRoot
 
@@ -72,6 +85,9 @@ Write-Host "  . .venv/bin/Activate.ps1"
 Write-Host ""
 Write-Host "Run the demo with:"
 Write-Host "  pwsh -NoProfile -File scripts/run_dev.ps1"
+Write-Host ""
+Write-Host "Run the fullscreen booth with:"
+Write-Host "  pwsh -NoProfile -File scripts/run_booth.ps1"
 Write-Host ""
 Write-Host "Or explicitly:"
 Write-Host "  $VenvPython -m uvicorn app:app --host 127.0.0.1 --port 3450 --log-level warning --no-access-log"

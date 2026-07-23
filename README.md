@@ -126,13 +126,7 @@ The Open Day port is fixed by convention:
 .venv/bin/uvicorn app:app --host 127.0.0.1 --port 3450 --log-level warning --no-access-log
 ```
 
-Or use:
-
-```bash
-bash scripts/run_dev.sh
-```
-
-PowerShell:
+Or use the PowerShell launcher:
 
 ```powershell
 pwsh -NoProfile -File scripts/run_dev.ps1
@@ -141,12 +135,6 @@ pwsh -NoProfile -File scripts/run_dev.ps1
 The run scripts first stop any previous `uvicorn app:app` demo process for this project on the configured port, then start a fresh server.
 
 To stop the demo without starting it again:
-
-```bash
-bash scripts/stop_dev.sh
-```
-
-PowerShell:
 
 ```powershell
 pwsh -NoProfile -File scripts/stop_dev.ps1
@@ -166,15 +154,18 @@ Do not use random fallback ports for Open Day mode.
 
 For Open Day, start the local server and a dedicated fullscreen Chromium window with one command:
 
-```bash
-.venv/bin/python scripts/run_booth.py
+```powershell
+pwsh -NoProfile -File scripts/run_booth.ps1
 ```
 
 For a windowed rehearsal that is easier to exit and inspect:
 
-```bash
-.venv/bin/python scripts/run_booth.py --windowed
+```powershell
+pwsh -NoProfile -File scripts/run_booth.ps1 -Windowed
 ```
+
+Use `-Browser`, `-ListenHost`, or `-Port` to override browser discovery and
+the `.env` network settings when needed.
 
 Booth mode:
 
